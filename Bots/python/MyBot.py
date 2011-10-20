@@ -41,6 +41,8 @@ class MyBot:
     # the ants class is created and setup by the Ants.run method
     def do_setup(self, ants):
         # initialize data structures after learning the game settings
+        self.MAXPATH = sqrt(ants.rows**2 + ants.cols**2)
+        self.NEAR = 10 # ants.viewradius2 #??
         pass
 
     def send_ant(self,ants,a,loc,destinations=[]):
@@ -51,6 +53,8 @@ class MyBot:
             if ants.unoccupied(new_loc) and not new_loc in destinations:
                 destinations.append(new_loc)
                 ants.issue_order((a, direction))
+                #self.round_ants.remove(a)
+                #ld("a: %s -> %s", a, new_loc)
                 return a
         return None
 
@@ -66,94 +70,114 @@ class MyBot:
         if ant_loc in self.velocities and self.velocities[ant_loc][1]>1:
             return [self.velocities[ant_loc][0]] #*self.velocities[ant_loc][1]
         return []
+
+    def near_home(self,ants,pos):
+        for h in ants.my_hills():
+            if ants.distance(pos,h) < self.NEAR: return True
+        return False
     
     # do turn is run once per turn
     # the ants class has the game state and is updated by the Ants.run method
     # it also has several helper methods to use
     def do_turn(self, ants):
+        ld("------------------------------")
         # loop through all my ants and try to give them orders
         # the ant_loc is an ant location tuple in (row, col) form
         destinations = []
 
         # 0. if near base attack ants if away don't
-        near_home = dict()
-        for a in ants.my_ants():
-            for h in ants.my_hills():
-                if ants.distance(a,h) < 10:
-                    near_home[a] = True
-                else:
-                    near_home[a] = False
-        #ld("NH: %s",near_home)
+        #self.near_home = dict()
+        #for a in ants.my_ants():
+        #    for h in ants.my_hills():
+        #        if ants.distance(a,h) < 10:
+        #            self.near_home[a] = True
+        #        else:
+        #            self.near_home[a] = False
+        ##ld("NH: %s",self.near_home)
 
         # 1. Miso hungry, attack food first with closest ant
-        round_ants = ants.my_ants()
-        for f in ants.food():
-            # pop closest ant from all round_ants, assign it to food
-            min_ant = None
-            min_dist = 999999999999 #sys.maxint FIXME
-            for a in round_ants:
-                d = manhattanDistance(f,a)
-                if d < min_dist:
-                    min_ant = a
-                    min_dist = d
-            if min_ant:
-                a = self.send_ant(ants,min_ant,f,destinations)
-                if a:
-                    round_ants.remove(min_ant)
-                #directions = ants.direction(min_ant, f)
-                #random.shuffle(directions)
-                #for direction in directions:
-                #    new_loc = ants.destination(min_ant, direction)
-                #    if ants.unoccupied(new_loc) and not new_loc in destinations:
-                #        destinations.append(new_loc)
-                #        ants.issue_order((min_ant, direction))
-                #        round_ants.remove(min_ant)
-                #        break
-                ld("a: %s -> %s", min_ant, f)
+        self.round_ants = ants.my_ants()
+        #for f in ants.food():
+        #    # pop closest ant from all round_ants, assign it to food
+        #    min_ant = None
+        #    min_dist = 999999999999 #sys.maxint FIXME
+        #    for a in self.round_ants:
+        #        d = manhattanDistance(f,a)
+        #        if d < min_dist:
+        #            min_ant = a
+        #            min_dist = d
+        #    if min_ant:
+        #        a = self.send_ant(ants,min_ant,f,destinations)
 
         # defend base?
-        if near_home:
-            for ant_loc in round_ants:
-                if near_home[ant_loc]:
-                    for ea,_ in ants.enemy_ants():
-                        ld("ea: %s a: %s d: %d", ea,ant_loc,ants.distance(ant_loc,ea))
-                        if ants.distance(ant_loc,ea) < 10:
-                            x = self.send_ant(ants,ant_loc,ea,destinations)
-                            if x:
-                                round_ants.remove(ant_loc)
-                            ld("***** attack *****")
-                            #break
+        #if self.near_home:
+        #    for ant_loc in self.round_ants:
+        #        if self.near_home[ant_loc]:
+        #            for ea,_ in ants.enemy_ants():
+        #                #ld("ea: %s a: %s d: %d", ea,ant_loc,ants.distance(ant_loc,ea))
+        #                if ants.distance(ant_loc,ea) < 10:
+        #                    x = self.send_ant(ants,ant_loc,ea,destinations)
+        #                    ld("***** attack *****")
+        #                    break
 
-        for ant_loc in round_ants:
+        for ant_loc in self.round_ants:
             # try all directions in given order
             directions = ['n','e','s','w']
             random.shuffle(directions)
             # Add current direction with 90%
             if random.random() < 0.9:
                 directions = self.get_vel_dirs(ant_loc) + directions
-            ld('posible dirs:%s',directions)
-            for direction in directions:
-                # the destination method will wrap around the map properly
-                # and give us a new (row, col) tuple
-                new_loc = ants.destination(ant_loc, direction)
-                # passable returns true if the location is land
-                if (ants.passable(new_loc)) and not new_loc in destinations:
-                    # an order is the location of a current ant and a direction
-                    ants.issue_order((ant_loc, direction))
-                    destinations.append(new_loc)
-                    self.update_vel(ant_loc,new_loc,direction)
-                    # stop now, don't give 1 ant multiple orders
-                    break
+            #ld('posible dirs:%s',directions)
+            pd = [(d,self.objective_function(ants,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions)]
+            pd = [d  for d in pd if ants.unoccupied(d[0])]
+            #new_loc,score = min(pd,key=lambda x: x[1])
+            new_loc,score = max(pd,key=lambda x: x[1])
+            #ld("new_loc: %s score:%s", new_loc, score)
+            x = self.send_ant(ants,ant_loc,new_loc,destinations)
+            if not x: ld("WTF")
+
             # check if we still have time left to calculate more orders
             if ants.time_remaining() < 10:
+                ld("OH FUCK, OUT OF TIME!!!")
                 break
+        if self.round_ants: 
+            ld("forgot to move: %s", self.round_ants)
 
-    def objective_function(self, ants, pos):
-        if not ants.enemy_hills(): return 0
+    # Define: objfuncs return HIGH value for goodness, low value for badness (can be negative)
+    def enemy_objfunc(self, ants, pos):
+        """ objective function for cells based on nearness to enemy"""
+        if not ants.enemy_ants(): return 0
+        nh = self.near_home(ants,pos)
+        dist = min([x for x in map(lambda a: ants.distance(pos,a[0]), ants.enemy_ants())])
+        if nh and dist < 10: return self.MAXPATH      # defend home
+        if not nh and dist < 3: return 0-self.MAXPATH # prefer life
+        return 0                                      # don't care
+        #num=1.0
+        #if self.near_home(ants,pos): num=-4.0
+        #v = sum([num/x for x in map(lambda a: ants.distance(pos,a[0]), ants.enemy_ants())])
+        #return v
+    def food_objfunc(self,ants,pos):
+        """ object function for food. Closest ant should go for the food"""
+        for f in ants.food():
+            d = manhattanDistance(pos,f)
+            # we can see it, assume we are closest, and go to it
+            if d < ants.viewradius2: return self.MAXPATH - d
+        return 0
+    def hill_objfunc(self,ants,pos):
+        if not ants.enemy_hills(): return 0 # no current objective
         m=0
         for h,_ in ants.enemy_hills():
             m = min(manhattanDistance(pos,h),m)
-        return m
+        return self.MAXPATH - m
+    def objective_function(self, ants, pos):
+        e = self.enemy_objfunc(ants,pos)       
+        f = self.food_objfunc(ants,pos) 
+        h = self.hill_objfunc(ants,pos) 
+        # TODO: need randomness to our search, everyone goes for the one food item now ;)
+        ld("pos: %s enmy obj: %s food obj: %s hill obj: %s", pos,e,f,h)
+        o = [ x for x in [e,f,h] if x != 0] or [0]
+        ld("o=%s",o)
+        return o
             
 if __name__ == '__main__':
     # psyco will speed up python a little, but is not needed
