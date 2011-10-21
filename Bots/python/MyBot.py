@@ -6,6 +6,7 @@ import sys
 from optparse import OptionParser
 
 logLevel = logging.DEBUG
+logging.basicConfig()
 logger = logging.getLogger("ConsoleLog")
 logger.setLevel(logLevel)
 
@@ -26,7 +27,6 @@ def manhattanDistance( xy1, xy2 ):
   return abs( xy1[0] - xy2[0] ) + abs( xy1[1] - xy2[1] )
 
 
-
 # define a class with a do_turn method
 # the Ants.run method will parse and update bot input
 # it will also run the do_turn method for us
@@ -34,6 +34,10 @@ class MyBot:
     def __init__(self):
         # define class level variables, will be remembered between turns
         self.velocities = dict()
+        self.seen_map = set()
+        self.visited_map = set()
+        self.known_bases = set()
+        self.fnum=0
         pass
     
     # do_setup is run once at the start of the game
@@ -41,7 +45,9 @@ class MyBot:
     # the ants class is created and setup by the Ants.run method
     def do_setup(self, ants):
         # initialize data structures after learning the game settings
-        self.MAXPATH = sqrt(ants.rows**2 + ants.cols**2)
+        self.MAXPATH = ants.rows + ants.cols + 1
+        self.rows= ants.rows
+        self.cols= ants.cols
         self.NEAR = 10 # ants.viewradius2 #??
         pass
 
@@ -50,31 +56,56 @@ class MyBot:
         random.shuffle(directions)
         for direction in directions:
             new_loc = ants.destination(a, direction)
-            if ants.unoccupied(new_loc) and not new_loc in destinations:
+            if ants.passable(new_loc) and not new_loc in destinations:
                 destinations.append(new_loc)
                 ants.issue_order((a, direction))
+                self.update_vel(a,new_loc,direction)
                 #self.round_ants.remove(a)
                 #ld("a: %s -> %s", a, new_loc)
                 return a
         return None
 
-    def update_vel(self,ant_loc,new_loc,direction):
-        vl = 1
-        if ant_loc in self.velocities:
-            v = self.velocities[ant_loc]
-            self.velocities.pop(ant_loc)
-            if direction == v[0]: vl += v[1]
-        self.velocities[new_loc] = (direction,vl)
-
-    def get_vel_dirs(self,ant_loc):
-        if ant_loc in self.velocities and self.velocities[ant_loc][1]>1:
-            return [self.velocities[ant_loc][0]] #*self.velocities[ant_loc][1]
-        return []
-
     def near_home(self,ants,pos):
         for h in ants.my_hills():
             if ants.distance(pos,h) < self.NEAR: return True
         return False
+
+    def neighbors(self, ants, group):
+        pass
+
+    def drawHeatMap(self):
+        return
+        from matplotlib import pyplot as PLT
+        from matplotlib import cm as CM
+        from matplotlib import mlab as ML
+        import numpy as NP
+
+        x = [ a[0] for a in self.round_scores ]
+        y = [ a[1] for a in self.round_scores ]
+        z = [ a[2] for a in self.round_scores ]
+
+        A = NP.zeros((self.rows,self.cols))
+        for s in self.round_scores:
+            A[s[0]][s[1]] = float(s[2]- min(z))/max(z) 
+
+        ld("x: %s",x)
+        ld("y: %s",y)
+        ld("z: %s",z)
+
+        gridsize=[self.rows,self.cols]
+        PLT.subplot(111)
+        # if "bins=None", then color of each hexagon corresponds directly to its count
+        # "C" is optional--it maps values to x, y coordinates; if C is None (default) then 
+        # the result is a pure 2D histogram 
+        #PLT.hexbin(x, y, C=z, gridsize=gridsize, cmap=CM.jet, bins=None)
+        #PLT.imshow( A, cmap=CM.jet,  interpolation='nearest', vmin=min(z), vmax=max(z) )
+        PLT.imshow( A, cmap=CM.jet,  interpolation='nearest')
+        #PLT.axis([x.min(), x.max(), y.min(), y.max()])
+        if 0 == self.fnum:
+            cb = PLT.colorbar()
+            cb.set_label('mean value')
+        self.fnum+=1
+        PLT.savefig("/tmp/plt_%s.png"%self.fnum)
     
     # do turn is run once per turn
     # the ants class has the game state and is updated by the Ants.run method
@@ -85,99 +116,112 @@ class MyBot:
         # the ant_loc is an ant location tuple in (row, col) form
         destinations = []
 
-        # 0. if near base attack ants if away don't
-        #self.near_home = dict()
-        #for a in ants.my_ants():
-        #    for h in ants.my_hills():
-        #        if ants.distance(a,h) < 10:
-        #            self.near_home[a] = True
-        #        else:
-        #            self.near_home[a] = False
-        ##ld("NH: %s",self.near_home)
-
-        # 1. Miso hungry, attack food first with closest ant
         self.round_ants = ants.my_ants()
-        #for f in ants.food():
-        #    # pop closest ant from all round_ants, assign it to food
-        #    min_ant = None
-        #    min_dist = 999999999999 #sys.maxint FIXME
-        #    for a in self.round_ants:
-        #        d = manhattanDistance(f,a)
-        #        if d < min_dist:
-        #            min_ant = a
-        #            min_dist = d
-        #    if min_ant:
-        #        a = self.send_ant(ants,min_ant,f,destinations)
+        self.round_scores = []
 
-        # defend base?
-        #if self.near_home:
-        #    for ant_loc in self.round_ants:
-        #        if self.near_home[ant_loc]:
-        #            for ea,_ in ants.enemy_ants():
-        #                #ld("ea: %s a: %s d: %d", ea,ant_loc,ants.distance(ant_loc,ea))
-        #                if ants.distance(ant_loc,ea) < 10:
-        #                    x = self.send_ant(ants,ant_loc,ea,destinations)
-        #                    ld("***** attack *****")
-        #                    break
+        # Update known bases
+        #  remove dead bases
+        dead_bases = []
+        for h in self.known_bases:
+            if h not in ants.enemy_hills() and ants.visible(h):
+                dead_bases.append(h) 
+        for h in dead_bases:
+            self.known_bases.remove(h)
+        #  add new bases
+        for h in ants.enemy_hills():
+            self.known_bases.add(h[0])
+
+        # Add all seen squares to the seen_map
+        for r in range(ants.rows):
+            for c in range(ants.cols):
+                if ants.visible((r,c)): self.seen_map.add((r,c))
+        #ld(self.seen_map)
 
         for ant_loc in self.round_ants:
+            self.visited_map.add(ant_loc)
             # try all directions in given order
             directions = ['n','e','s','w']
             random.shuffle(directions)
-            # Add current direction with 90%
-            if random.random() < 0.9:
-                directions = self.get_vel_dirs(ant_loc) + directions
             #ld('posible dirs:%s',directions)
-            pd = [(d,self.objective_function(ants,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions)]
-            pd = [d  for d in pd if ants.unoccupied(d[0])]
+            pd = [(d,self.objective_function(ants,ant_loc,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions) if ants.passable(d)]
+            pd.append( (ant_loc,self.objective_function(ants,ant_loc,ant_loc)) ) # stay put?
+            pd.sort(key=lambda x: x[1])
             #new_loc,score = min(pd,key=lambda x: x[1])
-            new_loc,score = max(pd,key=lambda x: x[1])
             #ld("new_loc: %s score:%s", new_loc, score)
-            x = self.send_ant(ants,ant_loc,new_loc,destinations)
-            if not x: ld("WTF")
+            for new_loc,_ in pd:
+                x = self.send_ant(ants,ant_loc,new_loc,destinations)
+                if x: break
 
             # check if we still have time left to calculate more orders
             if ants.time_remaining() < 10:
                 ld("OH FUCK, OUT OF TIME!!!")
                 break
-        if self.round_ants: 
-            ld("forgot to move: %s", self.round_ants)
+        ### Draw my heat map
+        self.drawHeatMap()
 
-    # Define: objfuncs return HIGH value for goodness, low value for badness (can be negative)
-    def enemy_objfunc(self, ants, pos):
-        """ objective function for cells based on nearness to enemy"""
-        if not ants.enemy_ants(): return 0
+    # Define: objfuncs return HIGH value for BADness, LOW value for GOODness (can be negative)
+    def enemy_objfunc(self, ants, ant_pos, pos):
+        """ Attack enemy close to home, but avoid when exploring.
+        :TODO: If we can attack with TWO+ at once then we don't loose an ant,
+               take this into account."""
+        if not ants.enemy_ants(): return self.MAXPATH
         nh = self.near_home(ants,pos)
         dist = min([x for x in map(lambda a: ants.distance(pos,a[0]), ants.enemy_ants())])
-        if nh and dist < 10: return self.MAXPATH      # defend home
-        if not nh and dist < 3: return 0-self.MAXPATH # prefer life
-        return 0                                      # don't care
-        #num=1.0
-        #if self.near_home(ants,pos): num=-4.0
-        #v = sum([num/x for x in map(lambda a: ants.distance(pos,a[0]), ants.enemy_ants())])
-        #return v
-    def food_objfunc(self,ants,pos):
+        if nh and dist < 10: return 0-self.MAXPATH    # defend home
+        if not nh and dist < 3: return 2*self.MAXPATH # prefer life
+        return self.MAXPATH                           # don't care
+    def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
         for f in ants.food():
             d = manhattanDistance(pos,f)
             # we can see it, assume we are closest, and go to it
-            if d < ants.viewradius2: return self.MAXPATH - d
-        return 0
-    def hill_objfunc(self,ants,pos):
-        if not ants.enemy_hills(): return 0 # no current objective
-        m=0
-        for h,_ in ants.enemy_hills():
-            m = min(manhattanDistance(pos,h),m)
-        return self.MAXPATH - m
-    def objective_function(self, ants, pos):
-        e = self.enemy_objfunc(ants,pos)       
-        f = self.food_objfunc(ants,pos) 
-        h = self.hill_objfunc(ants,pos) 
+            if d < ants.viewradius2: return d
+        return self.MAXPATH
+    def hill_objfunc(self,ants,ant_pos,pos):
+        #hills = ants.enemy_hills()
+        hills = self.known_bases
+        return min([self.MAXPATH] + [manhattanDistance(pos,h) for h in hills])
+    def friend_objfunc(self,ants,pos):
+        """AVOID running into each other"""
+        pass
+    def momentum_objfunc(self,ants,ant_pos,pos):
+        """Prefer same direction"""
+        d = self.get_vel_dir(ant_pos)
+        if d and ants.destination(ant_pos, d) == pos: return self.MAXPATH -1
+        return self.MAXPATH
+    def explor_objfunc(self,ants,ant_pos,pos):
+        """Prefer unseen areas"""
+        #if pos in self.seen_map: return self.MAXPATH
+        #ld(self.visited_map)
+        #if pos in self.visited_map: return self.MAXPATH
+        if pos in self.visited_map: return self.momentum_objfunc(ants,ant_pos,pos)
+        return self.MAXPATH-2
+
+    # :TODO: Travel in groups of 3+
+    # :TODO: Keep as much screen visible as possible
+    # :TODO: Assign ants types: HUNGRY, FIGHTER, BOMBER, DEFENCE .. proportion something like 40,10,40,10
+    def objective_function(self, ants, ant_pos, pos):
+        of = [self.enemy_objfunc,self.food_objfunc,self.hill_objfunc,self.explor_objfunc]
+        o = [f(ants,ant_pos,pos) for f in of]
+        self.round_scores.append((pos[0],pos[1],min(o)))
         # TODO: need randomness to our search, everyone goes for the one food item now ;)
-        ld("pos: %s enmy obj: %s food obj: %s hill obj: %s", pos,e,f,h)
-        o = [ x for x in [e,f,h] if x != 0] or [0]
+        #o = [ x for x in 0 if x != 0] or [0] # filter out nil
         ld("o=%s",o)
         return o
+
+    def update_vel(self,ant_loc,new_loc,direction):
+        vl = 1
+        if ant_loc in self.velocities:
+            v = self.velocities[ant_loc]
+            self.velocities.pop(ant_loc)
+            if direction == v[0]: vl += v[1]
+        self.velocities[new_loc] = (direction,vl)
+
+    def get_vel_dir(self,ant_loc):
+        if ant_loc in self.velocities and self.velocities[ant_loc][1]>=1:
+            return self.velocities[ant_loc][0]
+        return None
+
             
 if __name__ == '__main__':
     # psyco will speed up python a little, but is not needed
