@@ -1,0 +1,8 @@
+*.pyc
+game_logs
+*.o
+tags
+GPATH
+GRTAGS
+GSYMS
+GTAGS
