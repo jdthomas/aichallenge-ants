@@ -60,7 +60,6 @@ class MyBot:
                 destinations.append(new_loc)
                 ants.issue_order((a, direction))
                 self.update_vel(a,new_loc,direction)
-                #self.round_ants.remove(a)
                 #ld("a: %s -> %s", a, new_loc)
                 return a
         return None
@@ -73,7 +72,34 @@ class MyBot:
     def neighbors(self, ants, group):
         pass
 
-    def drawHeatMap(self):
+    def drawHeatMapAll(self,ants):
+        from matplotlib import pyplot as PLT
+        from matplotlib import cm as CM
+        from matplotlib import mlab as ML
+        import numpy as NP
+
+        A = NP.zeros((self.rows,self.cols))
+        mi,ma = 9999999,0
+        for x in range(self.rows):
+            for y in range(self.cols):
+                A[x][y] = self.objective_function(ants,None,(x,y))
+                ma = max(ma,A[x][y])
+                mi = min(mi,A[x][y])
+        gridsize=[self.rows,self.cols]
+        PLT.subplot(111)
+        # if "bins=None", then color of each hexagon corresponds directly to its count
+        # "C" is optional--it maps values to x, y coordinates; if C is None (default) then 
+        # the result is a pure 2D histogram 
+        #PLT.hexbin(x, y, C=z, gridsize=gridsize, cmap=CM.jet, bins=None)
+        PLT.imshow( A, cmap=CM.jet,  interpolation='nearest', vmin=mi, vmax=ma )
+        #PLT.imshow( A, cmap=CM.jet,  interpolation='nearest')
+        #PLT.axis([min(x), max(x), min(y), max(y)])
+        if 0 == self.fnum:
+            cb = PLT.colorbar()
+            cb.set_label('mean value')
+        self.fnum+=1
+        PLT.savefig("/tmp/plt_%s.png"%self.fnum)
+    def drawHeatMap(self,ants):
         return
         from matplotlib import pyplot as PLT
         from matplotlib import cm as CM
@@ -141,29 +167,32 @@ class MyBot:
             self.visited_map.add(ant_loc)
             # try all directions in given order
             directions = ['n','e','s','w']
-            random.shuffle(directions)
-            #ld('posible dirs:%s',directions)
+            #random.shuffle(directions)
             pd = [(d,self.objective_function(ants,ant_loc,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions) if ants.passable(d)]
             pd.append( (ant_loc,self.objective_function(ants,ant_loc,ant_loc)) ) # stay put?
             pd.sort(key=lambda x: x[1])
             #new_loc,score = min(pd,key=lambda x: x[1])
             #ld("new_loc: %s score:%s", new_loc, score)
-            for new_loc,_ in pd:
+            for new_loc,score in pd:
                 x = self.send_ant(ants,ant_loc,new_loc,destinations)
-                if x: break
+                if x:
+                    ld("moved: %s->%s '%s' for %s", ant_loc,new_loc,ants.direction(ant_loc, new_loc), score)
+                    break
+                else: ld("didn't move %s->%s", ant_loc,new_loc)
 
             # check if we still have time left to calculate more orders
             if ants.time_remaining() < 10:
                 ld("OH FUCK, OUT OF TIME!!!")
                 break
         ### Draw my heat map
-        self.drawHeatMap()
+        self.drawHeatMapAll(ants)
 
     # Define: objfuncs return HIGH value for BADness, LOW value for GOODness (can be negative)
     def enemy_objfunc(self, ants, ant_pos, pos):
         """ Attack enemy close to home, but avoid when exploring.
         :TODO: If we can attack with TWO+ at once then we don't loose an ant,
                take this into account."""
+        return self.MAXPATH                           # don't care
         if not ants.enemy_ants(): return self.MAXPATH
         nh = self.near_home(ants,pos)
         dist = min([x for x in map(lambda a: ants.distance(pos,a[0]), ants.enemy_ants())])
@@ -172,11 +201,7 @@ class MyBot:
         return self.MAXPATH                           # don't care
     def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
-        for f in ants.food():
-            d = manhattanDistance(pos,f)
-            # we can see it, assume we are closest, and go to it
-            if d < ants.viewradius2: return d
-        return self.MAXPATH
+        return min([self.MAXPATH] + [manhattanDistance(pos,f) for f in ants.food()])
     def hill_objfunc(self,ants,ant_pos,pos):
         #hills = ants.enemy_hills()
         hills = self.known_bases
@@ -204,10 +229,8 @@ class MyBot:
         of = [self.enemy_objfunc,self.food_objfunc,self.hill_objfunc,self.explor_objfunc]
         o = [f(ants,ant_pos,pos) for f in of]
         self.round_scores.append((pos[0],pos[1],min(o)))
-        # TODO: need randomness to our search, everyone goes for the one food item now ;)
-        #o = [ x for x in 0 if x != 0] or [0] # filter out nil
-        ld("o=%s",o)
-        return o
+        #ld("o=%s",o)
+        return min(o)
 
     def update_vel(self,ant_loc,new_loc,direction):
         vl = 1
@@ -218,7 +241,7 @@ class MyBot:
         self.velocities[new_loc] = (direction,vl)
 
     def get_vel_dir(self,ant_loc):
-        if ant_loc in self.velocities and self.velocities[ant_loc][1]>=1:
+        if ant_loc and ant_loc in self.velocities and self.velocities[ant_loc][1]>=1:
             return self.velocities[ant_loc][0]
         return None
 
