@@ -7,24 +7,18 @@ from optparse import OptionParser
 
 logLevel = logging.DEBUG
 logging.basicConfig()
-logger = logging.getLogger("ConsoleLog")
+logger = logging.getLogger("MyBot")
 logger.setLevel(logLevel)
 
 ld = logger.debug
 li = logger.info
 lw = logger.warning
 
-## JT IDEA 1:
-# Goals: 1. Find food, 2. Attack enemy base
-# Based off of PSO?
-#
-# Ants follow other ants if they are or are following a "leader" 
-# Once enemy base is located, leader ants use a* to go to it.
-
-
-def manhattanDistance( xy1, xy2 ):
-  "Returns the Manhattan distance between points xy1 and xy2"
-  return abs( xy1[0] - xy2[0] ) + abs( xy1[1] - xy2[1] )
+Antimation = None
+try:
+    from __MyAntimation import Antimation
+except ImportError:
+    pass
 
 
 # define a class with a do_turn method
@@ -37,7 +31,11 @@ class MyBot:
         self.seen_map = set()
         self.visited_map = set()
         self.known_bases = set()
-        self.fnum=0
+        self.Debug = None
+        if Antimation:
+            ld("Got your debug code...")
+            self.Debug = Antimation()
+            self.DebugInfo={}
         pass
     
     # do_setup is run once at the start of the game
@@ -45,7 +43,7 @@ class MyBot:
     # the ants class is created and setup by the Ants.run method
     def do_setup(self, ants):
         # initialize data structures after learning the game settings
-        self.MAXPATH = ants.rows + ants.cols + 1
+        self.MAXPATH = (ants.rows + ants.cols)*2
         self.rows= ants.rows
         self.cols= ants.cols
         self.NEAR = 10 # ants.viewradius2 #??
@@ -69,81 +67,30 @@ class MyBot:
             if ants.distance(pos,h) < self.NEAR: return True
         return False
 
-    def neighbors(self, ants, group):
-        pass
+    def find_close_food(self,ants,pos):
+        ant_dist = []
+        for food_loc in ants.food():
+            for ant_loc in ants.my_ants():
+                dist = ants.distance(ant_loc, food_loc)
+                ant_dist.append((dist, ant_loc, food_loc))
+        ant_dist.sort()
+        return ant_dist[0:3]
 
-    def drawHeatMapAll(self,ants):
-        from matplotlib import pyplot as PLT
-        from matplotlib import cm as CM
-        from matplotlib import mlab as ML
-        import numpy as NP
-
-        A = NP.zeros((self.rows,self.cols))
-        mi,ma = 9999999,0
-        for x in range(self.rows):
-            for y in range(self.cols):
-                A[x][y] = self.objective_function(ants,None,(x,y))
-                ma = max(ma,A[x][y])
-                mi = min(mi,A[x][y])
-        gridsize=[self.rows,self.cols]
-        PLT.subplot(111)
-        # if "bins=None", then color of each hexagon corresponds directly to its count
-        # "C" is optional--it maps values to x, y coordinates; if C is None (default) then 
-        # the result is a pure 2D histogram 
-        #PLT.hexbin(x, y, C=z, gridsize=gridsize, cmap=CM.jet, bins=None)
-        PLT.imshow( A, cmap=CM.jet,  interpolation='nearest', vmin=mi, vmax=ma )
-        #PLT.imshow( A, cmap=CM.jet,  interpolation='nearest')
-        #PLT.axis([min(x), max(x), min(y), max(y)])
-        if 0 == self.fnum:
-            cb = PLT.colorbar()
-            cb.set_label('mean value')
-        self.fnum+=1
-        PLT.savefig("/tmp/plt_%s.png"%self.fnum)
-    def drawHeatMap(self,ants):
-        return
-        from matplotlib import pyplot as PLT
-        from matplotlib import cm as CM
-        from matplotlib import mlab as ML
-        import numpy as NP
-
-        x = [ a[0] for a in self.round_scores ]
-        y = [ a[1] for a in self.round_scores ]
-        z = [ a[2] for a in self.round_scores ]
-
-        A = NP.zeros((self.rows,self.cols))
-        for s in self.round_scores:
-            A[s[0]][s[1]] = float(s[2]- min(z))/max(z) 
-
-        ld("x: %s",x)
-        ld("y: %s",y)
-        ld("z: %s",z)
-
-        gridsize=[self.rows,self.cols]
-        PLT.subplot(111)
-        # if "bins=None", then color of each hexagon corresponds directly to its count
-        # "C" is optional--it maps values to x, y coordinates; if C is None (default) then 
-        # the result is a pure 2D histogram 
-        #PLT.hexbin(x, y, C=z, gridsize=gridsize, cmap=CM.jet, bins=None)
-        #PLT.imshow( A, cmap=CM.jet,  interpolation='nearest', vmin=min(z), vmax=max(z) )
-        PLT.imshow( A, cmap=CM.jet,  interpolation='nearest')
-        #PLT.axis([x.min(), x.max(), y.min(), y.max()])
-        if 0 == self.fnum:
-            cb = PLT.colorbar()
-            cb.set_label('mean value')
-        self.fnum+=1
-        PLT.savefig("/tmp/plt_%s.png"%self.fnum)
-    
     # do turn is run once per turn
     # the ants class has the game state and is updated by the Ants.run method
     # it also has several helper methods to use
     def do_turn(self, ants):
-        ld("------------------------------")
+        #ld("------------------------------")
         # loop through all my ants and try to give them orders
         # the ant_loc is an ant location tuple in (row, col) form
         destinations = []
 
         self.round_ants = ants.my_ants()
-        self.round_scores = []
+        if self.Debug:
+            self.DebugInfo={}
+            self.DebugInfo["round_scores"]= []
+            self.DebugInfo["rows"]=self.rows
+            self.DebugInfo["cols"]=self.cols
 
         # Update known bases
         #  remove dead bases
@@ -163,12 +110,15 @@ class MyBot:
                 if ants.visible((r,c)): self.seen_map.add((r,c))
         #ld(self.seen_map)
 
+        self.close_food = {}
         for ant_loc in self.round_ants:
+            #self.close_food[ant_loc] = self.find_close_food(ants,ant_loc)
             self.visited_map.add(ant_loc)
             # try all directions in given order
             directions = ['n','e','s','w']
             #random.shuffle(directions)
-            pd = [(d,self.objective_function(ants,ant_loc,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions) if ants.passable(d)]
+            pd = [(d,self.objective_function(ants,ant_loc,d)) for d in ants.neighbors(ant_loc)]
+            #pd = [(d,self.objective_function(ants,ant_loc,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions) if ants.passable(d)]
             pd.append( (ant_loc,self.objective_function(ants,ant_loc,ant_loc)) ) # stay put?
             pd.sort(key=lambda x: x[1])
             #new_loc,score = min(pd,key=lambda x: x[1])
@@ -176,16 +126,27 @@ class MyBot:
             for new_loc,score in pd:
                 x = self.send_ant(ants,ant_loc,new_loc,destinations)
                 if x:
-                    ld("moved: %s->%s '%s' for %s", ant_loc,new_loc,ants.direction(ant_loc, new_loc), score)
+#                    ld("moved: %s->%s '%s' for %s", ant_loc,new_loc,ants.direction(ant_loc, new_loc), score)
                     break
-                else: ld("didn't move %s->%s", ant_loc,new_loc)
+#                else: ld("didn't move %s->%s", ant_loc,new_loc)
 
             # check if we still have time left to calculate more orders
             if ants.time_remaining() < 10:
-                ld("OH FUCK, OUT OF TIME!!!")
+#                ld("OH FUCK, OUT OF TIME!!!")
                 break
         ### Draw my heat map
-        self.drawHeatMapAll(ants)
+        if self.Debug:
+            #A = [[0 for col in range(self.cols)] for row in range(self.rows)] #A = NP.zeros((self.rows,self.cols))
+            #mi,ma = 9999999,0
+            #for x in range(self.rows):
+            #    for y in range(self.cols):
+            #        A[x][y] = 1 #self.objective_function(ants,None,(x,y))
+            #        #ld("loop: %d %d", x,y)
+            #        #A[x][y] = self.objective_function(ants,None,(x,y))
+            #        ma = max(ma,A[x][y])
+            #        mi = min(mi,A[x][y])
+            #self.DebugInfo["all_objective"] = A
+            self.Debug.put(self.DebugInfo)
 
     # Define: objfuncs return HIGH value for BADness, LOW value for GOODness (can be negative)
     def enemy_objfunc(self, ants, ant_pos, pos):
@@ -201,19 +162,46 @@ class MyBot:
         return self.MAXPATH                           # don't care
     def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
-        return min([self.MAXPATH] + [manhattanDistance(pos,f) for f in ants.food()])
+        dists = sorted([(ants.distance(pos,f),f) for f in ants.food()])[0:3]
+        return min([self.MAXPATH] + [ants.path(pos,f) for _,f in dists])
+        #return min([self.MAXPATH] + [ants.path(pos,f) for f in ants.food()])
     def hill_objfunc(self,ants,ant_pos,pos):
         #hills = ants.enemy_hills()
         hills = self.known_bases
-        return min([self.MAXPATH] + [manhattanDistance(pos,h) for h in hills])
+        dists = sorted([(ants.distance(pos,h),h) for h in hills])[0:3]
+        return min([self.MAXPATH] + [ants.path(pos,h) for _,h in dists])/2
+        #return min([self.MAXPATH] + [ants.path(pos,h) for h in hills])
+        ## :FIXME: divide by two, will walk twice as far to find hill as find food
     def friend_objfunc(self,ants,pos):
         """AVOID running into each other"""
         pass
     def momentum_objfunc(self,ants,ant_pos,pos):
         """Prefer same direction"""
+        if not ant_pos: return self.MAXPATH
         d = self.get_vel_dir(ant_pos)
         if d and ants.destination(ant_pos, d) == pos: return self.MAXPATH -1
         return self.MAXPATH
+    def visability_objfunc(self,ants,ant_pos,pos):
+        if not ant_pos: return self.MAXPATH
+        visible_others = set()
+        my_ants = [a for a in ants.my_ants()]
+        my_ants.remove(ant_pos)
+        for a in my_ants:
+            for v in ants.visible_from(a):
+                visible_others.add(v)
+        visible_now = set(visible_others)
+        for v in ants.visible_from(ant_pos):
+            visible_now.add(v)
+        visible_next = set(visible_others)
+        for v in ants.visible_from(pos):
+            visible_next.add(v)
+        if len(visible_next - visible_now) > len(visible_now-visible_next): 
+            #ld("Vis increase")
+            # :TODO: hmmm, how to map "more visibility" into my scoreing
+            #        fucntion of "distance to something good"
+            return self.MAXPATH/2
+        return self.MAXPATH
+
     def explor_objfunc(self,ants,ant_pos,pos):
         """Prefer unseen areas"""
         #if pos in self.seen_map: return self.MAXPATH
@@ -222,14 +210,16 @@ class MyBot:
         if pos in self.visited_map: return self.momentum_objfunc(ants,ant_pos,pos)
         return self.MAXPATH-2
 
-    # :TODO: Travel in groups of 3+
-    # :TODO: Keep as much screen visible as possible
+    # :TODO: Travel in groups of 3+?
     # :TODO: Assign ants types: HUNGRY, FIGHTER, BOMBER, DEFENCE .. proportion something like 40,10,40,10
     def objective_function(self, ants, ant_pos, pos):
-        of = [self.enemy_objfunc,self.food_objfunc,self.hill_objfunc,self.explor_objfunc]
+        if not ants.passable(pos): return self.MAXPATH*2
+        if pos in ants.my_hills(): return self.MAXPATH*2
+        of = [self.enemy_objfunc,self.food_objfunc,self.hill_objfunc,self.explor_objfunc,self.visability_objfunc]
         o = [f(ants,ant_pos,pos) for f in of]
-        self.round_scores.append((pos[0],pos[1],min(o)))
-        #ld("o=%s",o)
+        if self.Debug:
+            self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
+#        ld("o=%s",o)
         return min(o)
 
     def update_vel(self,ant_loc,new_loc,direction):

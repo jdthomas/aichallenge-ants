@@ -36,6 +36,18 @@ BEHIND = {'n': 's',
           'e': 'w',
           'w': 'e'}
 
+################################################################################
+import logging
+logLevel = logging.DEBUG
+logging.basicConfig()
+logger = logging.getLogger("Ants")
+logger.setLevel(logLevel)
+
+ld = logger.debug
+li = logger.info
+lw = logger.warning
+################################################################################
+
 class Ants():
     def __init__(self):
         self.cols = None
@@ -53,6 +65,7 @@ class Ants():
         self.attackradius2 = 0
         self.spawnradius2 = 0
         self.turns = 0
+        self.path_cache = {}
 
     def setup(self, data):
         'parse initial input and setup starting game state'
@@ -89,6 +102,9 @@ class Ants():
         
         # reset vision
         self.vision = None
+
+        # reset paths
+        self.path_cache = {}
         
         # clear hill, ant and food data
         self.hill_list = {}
@@ -184,13 +200,81 @@ class Ants():
         d_row, d_col = AIM[direction]
         return ((row + d_row) % self.rows, (col + d_col) % self.cols)        
 
+    def neighbors(self, pos):
+        return [x for x in [self.destination(pos,d) for d in AIM.keys()] if self.passable(x)]
+    def a_star(self, start, goal):
+        ld("a_star: %s->%s",start,goal)
+        search_counter = 0
+        closedset = set()
+        openset = set()
+        g_score = {}
+        h_score = {}
+        f_score = {}
+        o_score = {} # cached copy of f_scores but only with the members of openset
+        came_from = {}
+
+        openset.add(start)
+        g_score[start] = 0
+        h_score[start] = self.distance(start,goal)
+        f_score[start] = g_score[start]+h_score[start]
+        o_score[start] = g_score[start]+h_score[start]
+
+        def reconstruct_path(came_from, current_node):
+            if current_node in came_from:
+                p = reconstruct_path(came_from, came_from[current_node])
+                return p + [current_node]
+            else:
+                return [current_node]
+
+        while openset:
+            search_counter+=1
+            x=min(o_score)
+            x_score = f_score[x]
+            if x == goal: 
+                pth = reconstruct_path(came_from,came_from[goal])
+                #ld("a_star: steps=%d score=%d(%d) path: %s",
+                #        search_counter,x_score, len(pth),pth )
+                return x_score
+            if self.time_remaining() < 20:
+                ld("OH FUCK, OUT OF TIME!!!")
+                return x_score
+            #if search_counter > 1000:  ld("Search too far") ; return x_score
+            #ld("Here x:%s, os:%s",x,openset )
+            openset.remove(x)
+            o_score.pop(x)
+            closedset.add(x)
+            for y in self.neighbors(x):
+                if y in closedset: continue
+                tenative_g_score = g_score[x] + 1
+                tenative_is_better = False
+                if y not in openset:
+                    openset.add(y)
+                    tenative_is_better = True
+                elif tenative_g_score < g_score[y]:
+                    tenative_is_better = True
+                if tenative_is_better:
+                    came_from[y] = x
+                    g_score[y] = tenative_g_score
+                    h_score[y] = self.distance(y,goal)
+                    f_score[y] = g_score[y] + h_score[y]
+                    o_score[y] = f_score[y]
+        return 999999999
+
+    def path(self, loc1, loc2):
+        # do a path search in the map here
+        if (loc1,loc2) not in self.path_cache: 
+            self.path_cache[ (loc1,loc2) ] = self.a_star(loc1,loc2)
+        return self.path_cache[ (loc1,loc2) ]
+
     def distance(self, loc1, loc2):
         'calculate the closest distance between to locations'
+        #:TODO: do a path search in the map here
         row1, col1 = loc1
         row2, col2 = loc2
         d_col = min(abs(col1 - col2), self.cols - abs(col1 - col2))
         d_row = min(abs(row1 - row2), self.rows - abs(row1 - row2))
         return d_row + d_col
+
 
     def direction(self, loc1, loc2):
         'determine the 1 or 2 fastest (closest) directions to reach a location'
@@ -246,6 +330,29 @@ class Ants():
                     self.vision[a_row+v_row][a_col+v_col] = True
         row, col = loc
         return self.vision[row][col]
+
+    def visible_from(self, loc):
+        ' determine which squares are visible to the given player '
+
+        if not hasattr(self, 'vision_offsets_2'):
+            # precalculate squares around an ant to set as visible
+            self.vision_offsets_2 = []
+            mx = int(sqrt(self.viewradius2))
+            for d_row in range(-mx,mx+1):
+                for d_col in range(-mx,mx+1):
+                    d = d_row**2 + d_col**2
+                    if d <= self.viewradius2:
+                        self.vision_offsets_2.append((
+                            d_row%self.rows-self.rows,
+                            d_col%self.cols-self.cols
+                        ))
+        # set all spaces as not visible
+        # loop through ants and set all squares around ant as visible
+        a_row, a_col = loc
+        this_vision = []
+        for v_row, v_col in self.vision_offsets_2:
+            this_vision.append( (a_row+v_row,a_col+v_col) )
+        return this_vision
     
     def render_text_map(self):
         'return a pretty string representing the map'
