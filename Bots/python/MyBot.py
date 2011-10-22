@@ -36,6 +36,7 @@ class MyBot:
             ld("Got your debug code...")
             self.Debug = Antimation()
             self.DebugInfo={}
+        self.turn_count=0
         pass
     
     # do_setup is run once at the start of the game
@@ -80,10 +81,13 @@ class MyBot:
     # the ants class has the game state and is updated by the Ants.run method
     # it also has several helper methods to use
     def do_turn(self, ants):
-        #ld("------------------------------")
+        self.turn_count+=1
+        ld("--------------------%d--------------------",self.turn_count)
         # loop through all my ants and try to give them orders
         # the ant_loc is an ant location tuple in (row, col) form
         destinations = []
+
+        self.good_cache={}
 
         self.round_ants = ants.my_ants()
         if self.Debug:
@@ -114,11 +118,8 @@ class MyBot:
         for ant_loc in self.round_ants:
             #self.close_food[ant_loc] = self.find_close_food(ants,ant_loc)
             self.visited_map.add(ant_loc)
-            # try all directions in given order
-            directions = ['n','e','s','w']
-            #random.shuffle(directions)
             pd = [(d,self.objective_function(ants,ant_loc,d)) for d in ants.neighbors(ant_loc)]
-            #pd = [(d,self.objective_function(ants,ant_loc,d)) for d in map(lambda x: ants.destination(ant_loc,x), directions) if ants.passable(d)]
+            #ld("neighbors of ant %s are %s:", ant_loc, pd)
             pd.append( (ant_loc,self.objective_function(ants,ant_loc,ant_loc)) ) # stay put?
             pd.sort(key=lambda x: x[1])
             #new_loc,score = min(pd,key=lambda x: x[1])
@@ -165,13 +166,17 @@ class MyBot:
         my_ants = ants.food()
         good_stuff = my_ants + [x for x in hills]
         ### HACK:
-        #if ant_pos:
-        #    self.good_cache={}
-        #    if not good_stuff:
-        #        return self.MAXPATH
-        #    dists = sorted([(ants.distance(ant_pos,f),f) for f in good_stuff])[0:3]
-        #    gs = [f for _,f in dists]
-        #    self.good_cache[and_pos] min([self.MAXPATH] + [ants.path(ant_pos,gs)[0]])
+        if ant_pos:
+            if not good_stuff:
+                return self.MAXPATH
+            if ant_pos not in self.good_cache:
+                dists = sorted([(ants.distance(ant_pos,f),f) for f in good_stuff])
+                gs = [f for _,f in dists]
+                self.good_cache[ant_pos] = ants.path(ant_pos,gs)
+            #ld("good_obj: %s->%s (%s:%s)", ant_pos, pos, self.good_cache[ant_pos][1], self.good_cache[ant_pos][0])
+            if pos == self.good_cache[ant_pos][1]:
+                return min(self.good_cache[ant_pos][0],self.MAXPATH)
+            return self.MAXPATH # wouldnt choose it anyway
 
         if not good_stuff:
             return self.MAXPATH
@@ -217,7 +222,7 @@ class MyBot:
             #ld("Vis increase")
             # :TODO: hmmm, how to map "more visibility" into my scoreing
             #        fucntion of "distance to something good"
-            return self.MAXPATH-4
+            return self.MAXPATH-2
         return self.MAXPATH
 
     def explor_objfunc(self,ants,ant_pos,pos):
@@ -226,7 +231,7 @@ class MyBot:
         #ld(self.visited_map)
         #if pos in self.visited_map: return self.MAXPATH
         if pos in self.visited_map: return self.momentum_objfunc(ants,ant_pos,pos)
-        return self.MAXPATH-2
+        return self.MAXPATH-3
 
     # :TODO: Travel in groups of 3+?
     # :TODO: Assign ants types: HUNGRY, FIGHTER, BOMBER, DEFENCE .. proportion something like 40,10,40,10
@@ -237,7 +242,7 @@ class MyBot:
         o = [f(ants,ant_pos,pos) for f in of]
         if self.Debug:
             self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
-        ld("o=%s",o)
+        #ld("o=%s",o)
         return min(o)
 
     def update_vel(self,ant_loc,new_loc,direction):

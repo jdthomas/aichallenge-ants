@@ -222,12 +222,12 @@ class Ants():
             seen.add(v)
             #ld("bfs: popped %s %s", v,vs)
             if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (9999999,start)
-            if search_counter > 2**10:  ld("Search too far") ; return (9999999,start)
+            if search_counter > 2**12:  ld("bfs: Search too far") ; return (9999999,start)
             if(v in goals):
                 pth = self.__reconstruct_path(came_from,came_from[v])
                 #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                 #ld("bfs: steps=%d v=%s, score=%d",search_counter,v,vs)
-                return (vs,pth[0])
+                return (vs,pth[1])
             for w in self.neighbors(v):
                 if w not in seen:
                     Q.append((w,vs+1))
@@ -235,7 +235,10 @@ class Ants():
                     if(w in goals):
                         pth = self.__reconstruct_path(came_from,came_from[w])
                         #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
-                        return (vs+1,pth[0]) # fuck it
+                        #HACK
+                        if len(pth)>1:
+                            return (vs+1,pth[1]) # fuck it
+                        return (vs+1,pth[0]) # really! fuck it
         #ld("bfs: NO PATH FOUND")
         return (9999999,start)
 
@@ -247,31 +250,36 @@ class Ants():
         g_score = {}
         h_score = {}
         f_score = {}
-        o_score = {} # cached copy of f_scores but only with the members of openset
         came_from = {}
 
         openset.add(start)
         g_score[start] = 0
         h_score[start] = min([self.distance(start,goal) for goal in goals])
         f_score[start] = g_score[start]+h_score[start]
-        o_score[start] = g_score[start]+h_score[start]
+        def best_guess():
+            #blah = sorted([(f_score[a],a) for a in openset])
+            mv,m = min([(f_score[a],a) for a in openset])
+            #ld("best_guess: %s:%s:%s",m,mv,blah)
+            return m
 
         while openset:
             search_counter+=1
-            x=min(o_score)
+            x = best_guess()
             x_score = f_score[x]
-            if x in goal: 
+            if x in goals: 
                 pth = self.__reconstruct_path(came_from,came_from[x])
                 #ld("a_star: steps=%d score=%d(%d) path: %s",
                 #        search_counter,x_score, len(pth),pth )
+                if len(pth)>1:
+                    return (x_score,pth[1])
                 return (x_score,pth[0])
-            if self.time_remaining() < 20:
-                ld("a_star: TIMEOUT, OH FUCK!!! %s",search_counter)
+            if self.time_remaining() < 20 or search_counter > 2**11:
                 pth = self.__reconstruct_path(came_from,came_from[x])
+                ld("a_star:Search too far: %s@%s (%s)",x_score,pth,search_counter) 
+                if len(pth)>1:
+                    return (x_score,pth[1])
                 return (x_score,pth[0])
-            #if search_counter > 1000:  ld("Search too far") ; return x_score
             openset.remove(x)
-            o_score.pop(x)
             closedset.add(x)
             for y in self.neighbors(x):
                 if y in closedset: continue
@@ -287,13 +295,12 @@ class Ants():
                     g_score[y] = tenative_g_score
                     h_score[y] = min([self.distance(y,goal) for goal in goals])
                     f_score[y] = g_score[y] + h_score[y]
-                    o_score[y] = f_score[y]
         return (999999999,start)
 
     def path(self, start, goals):
         # do a path search in the map here
-        #return self.a_star(start,goals)[0]
-        return self.bfs(start,goals)
+        return self.a_star(start,goals)
+        #return self.bfs(start,goals)
 
     def distance(self, loc1, loc2):
         'calculate the closest distance between to locations'
