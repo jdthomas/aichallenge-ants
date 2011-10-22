@@ -209,7 +209,7 @@ class Ants():
     def neighbors(self, pos):
         return [x for x in [self.destination(pos,d) for d in AIM.keys()] if self.passable(x)]
     def bfs(self,start,goals):
-        ld("bfs: %s->%s",start,goals)
+        #ld("bfs: %s->%s",start,goals)
         if start in goals: return 0
         came_from = {}
         search_counter=0
@@ -220,11 +220,12 @@ class Ants():
             search_counter+=1
             v,vs=Q.pop(0)
             seen.add(v)
-            if self.time_remaining() < 20: ld("OH FUCK, OUT OF TIME!!!") ; return (9999999,start)
-            #if search_counter > 2**13:  ld("Search too far") ; return self.distance(start,goals[0])
+            #ld("bfs: popped %s %s", v,vs)
+            if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (9999999,start)
+            if search_counter > 2**10:  ld("Search too far") ; return (9999999,start)
             if(v in goals):
                 pth = self.__reconstruct_path(came_from,came_from[v])
-                ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
+                #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                 #ld("bfs: steps=%d v=%s, score=%d",search_counter,v,vs)
                 return (vs,pth[0])
             for w in self.neighbors(v):
@@ -233,13 +234,13 @@ class Ants():
                     came_from[w]=v
                     if(w in goals):
                         pth = self.__reconstruct_path(came_from,came_from[w])
-                        ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
+                        #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                         return (vs+1,pth[0]) # fuck it
-        ld("bfs: NO PATH FOUND")
+        #ld("bfs: NO PATH FOUND")
         return (9999999,start)
 
     def a_star(self, start, goals):
-        ld("a_star: %s->%s",start,goals)
+        #ld("a_star: %s->%s",start,goals)
         search_counter = 0
         closedset = set()
         openset = set()
@@ -265,7 +266,7 @@ class Ants():
                 #        search_counter,x_score, len(pth),pth )
                 return (x_score,pth[0])
             if self.time_remaining() < 20:
-                ld("OH FUCK, OUT OF TIME!!!")
+                ld("a_star: TIMEOUT, OH FUCK!!! %s",search_counter)
                 pth = self.__reconstruct_path(came_from,came_from[x])
                 return (x_score,pth[0])
             #if search_counter > 1000:  ld("Search too far") ; return x_score
@@ -292,7 +293,7 @@ class Ants():
     def path(self, start, goals):
         # do a path search in the map here
         #return self.a_star(start,goals)[0]
-        return self.bfs(start,goals)[0]
+        return self.bfs(start,goals)
 
     def distance(self, loc1, loc2):
         'calculate the closest distance between to locations'

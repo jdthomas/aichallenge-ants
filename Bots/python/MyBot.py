@@ -164,19 +164,31 @@ class MyBot:
         hills = self.known_bases
         my_ants = ants.food()
         good_stuff = my_ants + [x for x in hills]
-        if good_stuff:
-            return min([self.MAXPATH] + [ants.path(pos,good_stuff)])
-        return self.MAXPATH
+        ### HACK:
+        #if ant_pos:
+        #    self.good_cache={}
+        #    if not good_stuff:
+        #        return self.MAXPATH
+        #    dists = sorted([(ants.distance(ant_pos,f),f) for f in good_stuff])[0:3]
+        #    gs = [f for _,f in dists]
+        #    self.good_cache[and_pos] min([self.MAXPATH] + [ants.path(ant_pos,gs)[0]])
+
+        if not good_stuff:
+            return self.MAXPATH
+        dists = sorted([(ants.distance(pos,f),f) for f in good_stuff])[0:3]
+        gs = [f for _,f in dists]
+        return min([self.MAXPATH] + [ants.path(pos,gs)[0]])
+        #return min([self.MAXPATH] + [ants.path(pos,good_stuff)[0]])
     def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
-        return min([self.MAXPATH] + [ants.path(pos,ants.food())])
+        return min([self.MAXPATH] + [ants.path(pos,ants.food())[0]])
     def hill_objfunc(self,ants,ant_pos,pos):
         #hills = ants.enemy_hills()
         hills = self.known_bases
         if hills:
-            return min([self.MAXPATH] + [ants.path(pos,hills)])
+            return min([self.MAXPATH] + [ants.path(pos,hills)[0]])
         return self.MAXPATH
-        #return min([self.MAXPATH] + [ants.path(pos,[h]) for h in hills])
+        #return min([self.MAXPATH] + [ants.path(pos,[h])[0] for h in hills])
         ## :FIXME: divide by two, will walk twice as far to find hill as find food
     def friend_objfunc(self,ants,pos):
         """AVOID running into each other"""
@@ -205,7 +217,7 @@ class MyBot:
             #ld("Vis increase")
             # :TODO: hmmm, how to map "more visibility" into my scoreing
             #        fucntion of "distance to something good"
-            return self.MAXPATH/2
+            return self.MAXPATH-4
         return self.MAXPATH
 
     def explor_objfunc(self,ants,ant_pos,pos):
@@ -225,7 +237,7 @@ class MyBot:
         o = [f(ants,ant_pos,pos) for f in of]
         if self.Debug:
             self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
-#        ld("o=%s",o)
+        ld("o=%s",o)
         return min(o)
 
     def update_vel(self,ant_loc,new_loc,direction):
