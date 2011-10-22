@@ -12,6 +12,8 @@ DEAD = -1
 LAND = -2
 FOOD = -3
 WATER = -4
+UNSEEN = -5
+HILL = -6
 
 PLAYER_ANT = 'abcdefghij'
 HILL_ANT = string = 'ABCDEFGHI'
@@ -65,6 +67,7 @@ class Ants():
         self.attackradius2 = 0
         self.spawnradius2 = 0
         self.turns = 0
+        self.MAXPATH = 9999999
         self.path_cache = {}
 
     def setup(self, data):
@@ -92,7 +95,8 @@ class Ants():
                     self.spawnradius2 = int(tokens[1])
                 elif key == 'turns':
                     self.turns = int(tokens[1])
-        self.map = [[LAND for col in range(self.cols)]
+        self.MAXPATH = (self.rows + self.cols)*2
+        self.map = [[UNSEEN for col in range(self.cols)]
                     for row in range(self.rows)]
 
     def update(self, data):
@@ -107,17 +111,19 @@ class Ants():
         self.path_cache = {}
         
         # clear hill, ant and food data
-        self.hill_list = {}
         for row, col in self.ant_list.keys():
             self.map[row][col] = LAND
         self.ant_list = {}
-        for row, col in self.dead_list.keys():
-            self.map[row][col] = LAND
-        self.dead_list = defaultdict(list)
         for row, col in self.food_list:
             self.map[row][col] = LAND
         self.food_list = []
-        
+        for row, col in self.dead_list.keys():
+            self.map[row][col] = LAND
+        self.dead_list = defaultdict(list)
+        for (row, col), owner in self.hill_list.items():
+            self.map[row][col] = LAND
+        self.hill_list = {}
+
         # update map and create new ant and food lists
         for line in data.split('\n'):
             line = line.strip().lower()
@@ -131,6 +137,8 @@ class Ants():
                     elif tokens[0] == 'f':
                         self.map[row][col] = FOOD
                         self.food_list.append((row, col))
+                    elif tokens[0] == 'l':
+                        self.map[row][col] = LAND
                     else:
                         owner = int(tokens[3])
                         if tokens[0] == 'a':
@@ -146,6 +154,11 @@ class Ants():
                         elif tokens[0] == 'h':
                             owner = int(tokens[3])
                             self.hill_list[(row, col)] = owner
+        # mark all visible UNSEEN cells as LAND
+        for a in self.my_ants():
+            for (r,c) in self.visible_from(a):
+                if self.map[r][c] == UNSEEN: self.map[r][c] = LAND
+        #ld("\n%s\n",self.render_text_map())
                         
     def time_remaining(self):
         return self.turntime - int(1000 * (time.clock() - self.turn_start_time))
@@ -160,6 +173,16 @@ class Ants():
         'finish the turn by writing the go line'
         sys.stdout.write('go\n')
         sys.stdout.flush()
+
+    def my_ants(self):
+        'return a list of all my ants'
+        return [loc for loc, owner in self.ant_list.items()
+                    if owner == MY_ANT]
+
+    def enemy_ants(self):
+        'return a list of all visible enemy ants'
+        return [(loc, owner) for loc, owner in self.ant_list.items()
+                    if owner != MY_ANT]
     
     def my_hills(self):
         return [loc for loc, owner in self.hill_list.items()
@@ -169,17 +192,6 @@ class Ants():
         return [(loc, owner) for loc, owner in self.hill_list.items()
                     if owner != MY_ANT]
         
-    def my_ants(self):
-        'return a list of all my ants'
-        return [(row, col) for (row, col), owner in self.ant_list.items()
-                    if owner == MY_ANT]
-
-    def enemy_ants(self):
-        'return a list of all visible enemy ants'
-        return [((row, col), owner)
-                    for (row, col), owner in self.ant_list.items()
-                    if owner != MY_ANT]
-
     def food(self):
         'return a list of all food locations'
         return self.food_list[:]
@@ -192,7 +204,7 @@ class Ants():
     def unoccupied(self, loc):
         'true if no ants are at the location'
         row, col = loc
-        return self.map[row][col] in (LAND, DEAD)
+        return self.map[row][col] in (LAND, DEAD, UNSEEN)
 
     def destination(self, loc, direction):
         'calculate a new location given the direction and wrap correctly'
@@ -221,13 +233,13 @@ class Ants():
             v,vs=Q.pop(0)
             seen.add(v)
             #ld("bfs: popped %s %s", v,vs)
-            if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (9999999,start)
-            if search_counter > 2**12:  ld("bfs: Search too far") ; return (9999999,start)
+            if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (self.MAXPATH,start)
+            if search_counter > 2**12:  ld("bfs: Search too far") ; return (self.MAXPATH,start)
             if(v in goals):
                 pth = self.__reconstruct_path(came_from,came_from[v])
                 #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                 #ld("bfs: steps=%d v=%s, score=%d",search_counter,v,vs)
-                return (vs,pth[1])
+                return (vs,pth)
             for w in self.neighbors(v):
                 if w not in seen:
                     Q.append((w,vs+1))
@@ -236,11 +248,9 @@ class Ants():
                         pth = self.__reconstruct_path(came_from,came_from[w])
                         #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                         #HACK
-                        if len(pth)>1:
-                            return (vs+1,pth[1]) # fuck it
-                        return (vs+1,pth[0]) # really! fuck it
+                        return (vs+1,pth) # really! fuck it
         #ld("bfs: NO PATH FOUND")
-        return (9999999,start)
+        return (self.MAXPATH,[start])
 
     def a_star(self, start, goals):
         #ld("a_star: %s->%s",start,goals)
@@ -267,18 +277,14 @@ class Ants():
             x = best_guess()
             x_score = f_score[x]
             if x in goals: 
-                pth = self.__reconstruct_path(came_from,came_from[x])
+                pth = self.__reconstruct_path(came_from,came_from[x]) + [x]
                 #ld("a_star: steps=%d score=%d(%d) path: %s",
                 #        search_counter,x_score, len(pth),pth )
-                if len(pth)>1:
-                    return (x_score,pth[1])
-                return (x_score,pth[0])
-            if self.time_remaining() < 20 or search_counter > 2**11:
-                pth = self.__reconstruct_path(came_from,came_from[x])
+                return (x_score,pth)
+            if self.time_remaining() < 30 or search_counter > 2**11:
+                pth = self.__reconstruct_path(came_from,came_from[x]) + [x]
                 ld("a_star:Search too far: %s@%s (%s)",x_score,pth,search_counter) 
-                if len(pth)>1:
-                    return (x_score,pth[1])
-                return (x_score,pth[0])
+                return (x_score,pth)
             openset.remove(x)
             closedset.add(x)
             for y in self.neighbors(x):
@@ -295,7 +301,7 @@ class Ants():
                     g_score[y] = tenative_g_score
                     h_score[y] = min([self.distance(y,goal) for goal in goals])
                     f_score[y] = g_score[y] + h_score[y]
-        return (999999999,start)
+        return (self.MAXPATH,[start])
 
     def path(self, start, goals):
         # do a path search in the map here
@@ -394,8 +400,11 @@ class Ants():
         'return a pretty string representing the map'
         tmp = ''
         for row in self.map:
-            tmp += '# %s\n' % ''.join([MAP_RENDER[col] for col in row])
+            tmp += '+ %s\n' % ''.join([MAP_RENDER[col] for col in row])
         return tmp
+
+    def check_unseen(self,cells):
+        return UNSEEN in [self.map[r][c] for (r,c) in cells]
 
     # static methods are not tied to a class and don't have self passed in
     # this is a python decorator
@@ -428,3 +437,4 @@ class Ants():
                 # don't raise error or return so that bot attempts to stay alive
                 traceback.print_exc(file=sys.stderr)
                 sys.stderr.flush()
+                break

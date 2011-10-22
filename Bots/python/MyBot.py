@@ -28,7 +28,6 @@ class MyBot:
     def __init__(self):
         # define class level variables, will be remembered between turns
         self.velocities = dict()
-        self.seen_map = set()
         self.visited_map = set()
         self.known_bases = set()
         self.Debug = None
@@ -44,7 +43,6 @@ class MyBot:
     # the ants class is created and setup by the Ants.run method
     def do_setup(self, ants):
         # initialize data structures after learning the game settings
-        self.MAXPATH = (ants.rows + ants.cols)*2
         self.rows= ants.rows
         self.cols= ants.cols
         self.NEAR = 10 # ants.viewradius2 #??
@@ -77,6 +75,11 @@ class MyBot:
         ant_dist.sort()
         return ant_dist[0:3]
 
+    def good_stuff(self,ants):
+        hills = self.known_bases
+        my_ants = ants.food()
+        # TODO add enemy ants near base
+        return my_ants + [x for x in hills]
     # do turn is run once per turn
     # the ants class has the game state and is updated by the Ants.run method
     # it also has several helper methods to use
@@ -108,11 +111,15 @@ class MyBot:
         for h in ants.enemy_hills():
             self.known_bases.add(h[0])
 
-        # Add all seen squares to the seen_map
-        for r in range(ants.rows):
-            for c in range(ants.cols):
-                if ants.visible((r,c)): self.seen_map.add((r,c))
-        #ld(self.seen_map)
+        # Decide which ants to do path finding on (lets say 3 closest to any object)
+        self.ants_to_search = []
+        for reward_loc in self.good_stuff(ants):
+            ant_dist = []
+            for ant_loc in ants.my_ants():
+                dist = ants.distance(ant_loc, reward_loc)
+                ant_dist.append((dist, ant_loc, reward_loc))
+            ant_dist.sort()
+            self.ants_to_search += [a for _,a,_ in ant_dist[0:4]]
 
         self.close_food = {}
         for ant_loc in self.round_ants:
@@ -154,95 +161,93 @@ class MyBot:
         """ Attack enemy close to home, but avoid when exploring.
         :TODO: If we can attack with TWO+ at once then we don't loose an ant,
                take this into account."""
-        return self.MAXPATH                           # don't care
-        if not ants.enemy_ants(): return self.MAXPATH
+        return ants.MAXPATH                           # don't care
+        if not ants.enemy_ants(): return ants.MAXPATH
         nh = self.near_home(ants,pos)
         dist = min([x for x in map(lambda a: ants.distance(pos,a[0]), ants.enemy_ants())])
-        if nh and dist < 10: return 0-self.MAXPATH    # defend home
-        if not nh and dist < 3: return 2*self.MAXPATH # prefer life
-        return self.MAXPATH                           # don't care
+        if nh and dist < 10: return 0-ants.MAXPATH    # defend home
+        if not nh and dist < 3: return 2*ants.MAXPATH # prefer life
+        return ants.MAXPATH                           # don't care
     def good_objfunc(self,ants,ant_pos,pos):
-        hills = self.known_bases
-        my_ants = ants.food()
-        good_stuff = my_ants + [x for x in hills]
+        if not self.good_stuff(ants):
+            return ants.MAXPATH
         ### HACK:
         if ant_pos:
-            if not good_stuff:
-                return self.MAXPATH
+            if ant_pos not in self.ants_to_search:
+                #ld("good_obj: DIST`%s->%s %s", ant_pos, pos, self.ants_to_search)
+                return ants.MAXPATH #return ants.distance(ant_pos,pos)
             if ant_pos not in self.good_cache:
-                dists = sorted([(ants.distance(ant_pos,f),f) for f in good_stuff])
+                dists = sorted([(ants.distance(ant_pos,f),f) for f in self.good_stuff(ants)])
                 gs = [f for _,f in dists]
                 self.good_cache[ant_pos] = ants.path(ant_pos,gs)
-            #ld("good_obj: %s->%s (%s:%s)", ant_pos, pos, self.good_cache[ant_pos][1], self.good_cache[ant_pos][0])
-            if pos == self.good_cache[ant_pos][1]:
-                return min(self.good_cache[ant_pos][0],self.MAXPATH)
-            return self.MAXPATH # wouldnt choose it anyway
-
-        if not good_stuff:
-            return self.MAXPATH
-        dists = sorted([(ants.distance(pos,f),f) for f in good_stuff])[0:3]
+            the_score,the_path = self.good_cache[ant_pos]
+            #ld("good_obj: PATH %s->%s (%s:%s)", ant_pos, pos, the_path, the_score)
+            if len(the_path)>1 and the_path[0]==ant_pos: the_path = the_path[1::] # Pop start position from path
+            if pos == the_path[0]: return the_score
+            return ants.MAXPATH # wouldnt choose it anyway (FIXME: causes problems when first choice cannot be taken)
+        dists = sorted([(ants.distance(pos,f),f) for f in self.good_stuff(ants)])[0:3]
         gs = [f for _,f in dists]
-        return min([self.MAXPATH] + [ants.path(pos,gs)[0]])
-        #return min([self.MAXPATH] + [ants.path(pos,good_stuff)[0]])
+        return ants.path(pos,gs)[0]
     def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
-        return min([self.MAXPATH] + [ants.path(pos,ants.food())[0]])
+        return min([ants.MAXPATH] + [ants.path(pos,ants.food())[0]])
     def hill_objfunc(self,ants,ant_pos,pos):
-        #hills = ants.enemy_hills()
         hills = self.known_bases
         if hills:
-            return min([self.MAXPATH] + [ants.path(pos,hills)[0]])
-        return self.MAXPATH
-        #return min([self.MAXPATH] + [ants.path(pos,[h])[0] for h in hills])
+            return min([ants.MAXPATH] + [ants.path(pos,hills)[0]])
+        return ants.MAXPATH
+        #return min([ants.MAXPATH] + [ants.path(pos,[h])[0] for h in hills])
         ## :FIXME: divide by two, will walk twice as far to find hill as find food
     def friend_objfunc(self,ants,pos):
         """AVOID running into each other"""
         pass
     def momentum_objfunc(self,ants,ant_pos,pos):
         """Prefer same direction"""
-        if not ant_pos: return self.MAXPATH
+        if not ant_pos: return ants.MAXPATH
         d = self.get_vel_dir(ant_pos)
-        if d and ants.destination(ant_pos, d) == pos: return self.MAXPATH -1
-        return self.MAXPATH
+        if d and ants.destination(ant_pos, d) == pos: return ants.MAXPATH -1
+        return ants.MAXPATH
     def visability_objfunc(self,ants,ant_pos,pos):
-        if not ant_pos: return self.MAXPATH
+        if not ant_pos: return ants.MAXPATH
         visible_others = set()
         my_ants = [a for a in ants.my_ants()]
         my_ants.remove(ant_pos)
         for a in my_ants:
             for v in ants.visible_from(a):
                 visible_others.add(v)
-        visible_now = set(visible_others)
-        for v in ants.visible_from(ant_pos):
-            visible_now.add(v)
         visible_next = set(visible_others)
         for v in ants.visible_from(pos):
             visible_next.add(v)
+        # Will visible next reveal something we have not see?
+        if ants.check_unseen(visible_next):
+            return ants.MAXPATH-4
+        visible_now = set(visible_others)
+        for v in ants.visible_from(ant_pos):
+            visible_now.add(v)
+        #map_now = [ants.map[row][col] for (row,col) in visible_now]
+        #ld("%s", [map_names[n] for n in map_now])
+        # Will the set of visible cells increase?
         if len(visible_next - visible_now) > len(visible_now-visible_next): 
-            #ld("Vis increase")
-            # :TODO: hmmm, how to map "more visibility" into my scoreing
-            #        fucntion of "distance to something good"
-            return self.MAXPATH-2
-        return self.MAXPATH
+            return ants.MAXPATH-3
+        return ants.MAXPATH
 
     def explor_objfunc(self,ants,ant_pos,pos):
         """Prefer unseen areas"""
-        #if pos in self.seen_map: return self.MAXPATH
         #ld(self.visited_map)
-        #if pos in self.visited_map: return self.MAXPATH
+        #if pos in self.visited_map: return ants.MAXPATH
         if pos in self.visited_map: return self.momentum_objfunc(ants,ant_pos,pos)
-        return self.MAXPATH-3
+        return ants.MAXPATH-1
 
     # :TODO: Travel in groups of 3+?
     # :TODO: Assign ants types: HUNGRY, FIGHTER, BOMBER, DEFENCE .. proportion something like 40,10,40,10
     def objective_function(self, ants, ant_pos, pos):
-        if not ants.passable(pos): return self.MAXPATH*2
-        if pos in ants.my_hills(): return self.MAXPATH*2
-        of = [self.enemy_objfunc,self.good_objfunc,self.explor_objfunc,self.visability_objfunc]
+        if not ants.passable(pos): return ants.MAXPATH*2
+        if pos in ants.my_hills(): return ants.MAXPATH*2
+        of = [self.enemy_objfunc, self.good_objfunc, self.explor_objfunc, self.visability_objfunc]
         o = [f(ants,ant_pos,pos) for f in of]
         if self.Debug:
             self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
-        #ld("o=%s",o)
+        ld("obj_func: %s->%s=%s",ant_pos,pos,o)
         return min(o)
 
     def update_vel(self,ant_loc,new_loc,direction):
