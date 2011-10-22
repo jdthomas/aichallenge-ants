@@ -200,10 +200,46 @@ class Ants():
         d_row, d_col = AIM[direction]
         return ((row + d_row) % self.rows, (col + d_col) % self.cols)        
 
+    def __reconstruct_path(self,came_from, current_node):
+        if current_node in came_from:
+            p = self.__reconstruct_path(came_from, came_from[current_node])
+            return p + [current_node]
+        else:
+            return [current_node]
     def neighbors(self, pos):
         return [x for x in [self.destination(pos,d) for d in AIM.keys()] if self.passable(x)]
-    def a_star(self, start, goal):
-        ld("a_star: %s->%s",start,goal)
+    def bfs(self,start,goals):
+        ld("bfs: %s->%s",start,goals)
+        if start in goals: return 0
+        came_from = {}
+        search_counter=0
+        Q = []
+        Q.append( (start,0) )
+        seen = set([start])
+        while Q:
+            search_counter+=1
+            v,vs=Q.pop(0)
+            seen.add(v)
+            if self.time_remaining() < 20: ld("OH FUCK, OUT OF TIME!!!") ; return (9999999,start)
+            #if search_counter > 2**13:  ld("Search too far") ; return self.distance(start,goals[0])
+            if(v in goals):
+                pth = self.__reconstruct_path(came_from,came_from[v])
+                ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
+                #ld("bfs: steps=%d v=%s, score=%d",search_counter,v,vs)
+                return (vs,pth[0])
+            for w in self.neighbors(v):
+                if w not in seen:
+                    Q.append((w,vs+1))
+                    came_from[w]=v
+                    if(w in goals):
+                        pth = self.__reconstruct_path(came_from,came_from[w])
+                        ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
+                        return (vs+1,pth[0]) # fuck it
+        ld("bfs: NO PATH FOUND")
+        return (9999999,start)
+
+    def a_star(self, start, goals):
+        ld("a_star: %s->%s",start,goals)
         search_counter = 0
         closedset = set()
         openset = set()
@@ -215,31 +251,24 @@ class Ants():
 
         openset.add(start)
         g_score[start] = 0
-        h_score[start] = self.distance(start,goal)
+        h_score[start] = min([self.distance(start,goal) for goal in goals])
         f_score[start] = g_score[start]+h_score[start]
         o_score[start] = g_score[start]+h_score[start]
-
-        def reconstruct_path(came_from, current_node):
-            if current_node in came_from:
-                p = reconstruct_path(came_from, came_from[current_node])
-                return p + [current_node]
-            else:
-                return [current_node]
 
         while openset:
             search_counter+=1
             x=min(o_score)
             x_score = f_score[x]
-            if x == goal: 
-                pth = reconstruct_path(came_from,came_from[goal])
+            if x in goal: 
+                pth = self.__reconstruct_path(came_from,came_from[x])
                 #ld("a_star: steps=%d score=%d(%d) path: %s",
                 #        search_counter,x_score, len(pth),pth )
-                return x_score
+                return (x_score,pth[0])
             if self.time_remaining() < 20:
                 ld("OH FUCK, OUT OF TIME!!!")
-                return x_score
+                pth = self.__reconstruct_path(came_from,came_from[x])
+                return (x_score,pth[0])
             #if search_counter > 1000:  ld("Search too far") ; return x_score
-            #ld("Here x:%s, os:%s",x,openset )
             openset.remove(x)
             o_score.pop(x)
             closedset.add(x)
@@ -255,16 +284,15 @@ class Ants():
                 if tenative_is_better:
                     came_from[y] = x
                     g_score[y] = tenative_g_score
-                    h_score[y] = self.distance(y,goal)
+                    h_score[y] = min([self.distance(y,goal) for goal in goals])
                     f_score[y] = g_score[y] + h_score[y]
                     o_score[y] = f_score[y]
-        return 999999999
+        return (999999999,start)
 
-    def path(self, loc1, loc2):
+    def path(self, start, goals):
         # do a path search in the map here
-        if (loc1,loc2) not in self.path_cache: 
-            self.path_cache[ (loc1,loc2) ] = self.a_star(loc1,loc2)
-        return self.path_cache[ (loc1,loc2) ]
+        #return self.a_star(start,goals)[0]
+        return self.bfs(start,goals)[0]
 
     def distance(self, loc1, loc2):
         'calculate the closest distance between to locations'

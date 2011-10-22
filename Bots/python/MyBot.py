@@ -160,17 +160,23 @@ class MyBot:
         if nh and dist < 10: return 0-self.MAXPATH    # defend home
         if not nh and dist < 3: return 2*self.MAXPATH # prefer life
         return self.MAXPATH                           # don't care
+    def good_objfunc(self,ants,ant_pos,pos):
+        hills = self.known_bases
+        my_ants = ants.food()
+        good_stuff = my_ants + [x for x in hills]
+        if good_stuff:
+            return min([self.MAXPATH] + [ants.path(pos,good_stuff)])
+        return self.MAXPATH
     def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
-        dists = sorted([(ants.distance(pos,f),f) for f in ants.food()])[0:3]
-        return min([self.MAXPATH] + [ants.path(pos,f) for _,f in dists])
-        #return min([self.MAXPATH] + [ants.path(pos,f) for f in ants.food()])
+        return min([self.MAXPATH] + [ants.path(pos,ants.food())])
     def hill_objfunc(self,ants,ant_pos,pos):
         #hills = ants.enemy_hills()
         hills = self.known_bases
-        dists = sorted([(ants.distance(pos,h),h) for h in hills])[0:3]
-        return min([self.MAXPATH] + [ants.path(pos,h) for _,h in dists])/2
-        #return min([self.MAXPATH] + [ants.path(pos,h) for h in hills])
+        if hills:
+            return min([self.MAXPATH] + [ants.path(pos,hills)])
+        return self.MAXPATH
+        #return min([self.MAXPATH] + [ants.path(pos,[h]) for h in hills])
         ## :FIXME: divide by two, will walk twice as far to find hill as find food
     def friend_objfunc(self,ants,pos):
         """AVOID running into each other"""
@@ -215,7 +221,7 @@ class MyBot:
     def objective_function(self, ants, ant_pos, pos):
         if not ants.passable(pos): return self.MAXPATH*2
         if pos in ants.my_hills(): return self.MAXPATH*2
-        of = [self.enemy_objfunc,self.food_objfunc,self.hill_objfunc,self.explor_objfunc,self.visability_objfunc]
+        of = [self.enemy_objfunc,self.good_objfunc,self.explor_objfunc,self.visability_objfunc]
         o = [f(ants,ant_pos,pos) for f in of]
         if self.Debug:
             self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
