@@ -124,6 +124,7 @@ class Ants():
             self.map[row][col] = LAND
         self.hill_list = {}
 
+        #ld("data:\n%s", data)
         # update map and create new ant and food lists
         for line in data.split('\n'):
             line = line.strip().lower()
@@ -155,9 +156,16 @@ class Ants():
                             owner = int(tokens[3])
                             self.hill_list[(row, col)] = owner
         # mark all visible UNSEEN cells as LAND
-        for a in self.my_ants():
-            for (r,c) in self.visible_from(a):
-                if self.map[r][c] == UNSEEN: self.map[r][c] = LAND
+        #def update_unseen():
+        #    for r in range(self.rows):
+        #        for c in range(self.cols):
+        #            if self.map[r][c] == UNSEEN and self.visible((r,c)):
+        #                self.map[r][c] = LAND
+        def update_unseen():
+            for a in self.my_ants():
+                for (r,c) in self.visible_from_per(a):
+                    if self.map[r][c] == UNSEEN: self.map[r][c] = LAND
+        update_unseen()
         #ld("\n%s\n",self.render_text_map())
                         
     def time_remaining(self):
@@ -236,7 +244,7 @@ class Ants():
             if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (self.MAXPATH,start)
             if search_counter > 2**12:  ld("bfs: Search too far") ; return (self.MAXPATH,start)
             if(v in goals):
-                pth = self.__reconstruct_path(came_from,came_from[v])
+                pth = self.__reconstruct_path(came_from,v)
                 #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                 #ld("bfs: steps=%d v=%s, score=%d",search_counter,v,vs)
                 return (vs,pth)
@@ -245,7 +253,7 @@ class Ants():
                     Q.append((w,vs+1))
                     came_from[w]=v
                     if(w in goals):
-                        pth = self.__reconstruct_path(came_from,came_from[w])
+                        pth = self.__reconstruct_path(came_from,w)
                         #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
                         #HACK
                         return (vs+1,pth) # really! fuck it
@@ -277,12 +285,12 @@ class Ants():
             x = best_guess()
             x_score = f_score[x]
             if x in goals: 
-                pth = self.__reconstruct_path(came_from,came_from[x]) + [x]
+                pth = self.__reconstruct_path(came_from,x)
                 #ld("a_star: steps=%d score=%d(%d) path: %s",
                 #        search_counter,x_score, len(pth),pth )
                 return (x_score,pth)
             if self.time_remaining() < 30 or search_counter > 2**11:
-                pth = self.__reconstruct_path(came_from,came_from[x]) + [x]
+                pth = self.__reconstruct_path(came_from,x)
                 ld("a_star:Search too far: %s@%s (%s)",x_score,pth,search_counter) 
                 return (x_score,pth)
             openset.remove(x)
@@ -347,35 +355,32 @@ class Ants():
                 d.append('w')
         return d
 
-    def visible(self, loc):
-        ' determine which squares are visible to the given player '
-
-        if self.vision == None:
-            if not hasattr(self, 'vision_offsets_2'):
-                # precalculate squares around an ant to set as visible
-                self.vision_offsets_2 = []
-                mx = int(sqrt(self.viewradius2))
-                for d_row in range(-mx,mx+1):
-                    for d_col in range(-mx,mx+1):
-                        d = d_row**2 + d_col**2
-                        if d <= self.viewradius2:
-                            self.vision_offsets_2.append((
-                                d_row%self.rows-self.rows,
-                                d_col%self.cols-self.cols
-                            ))
-            # set all spaces as not visible
-            # loop through ants and set all squares around ant as visible
-            self.vision = [[False]*self.cols for row in range(self.rows)]
-            for ant in self.my_ants():
-                a_row, a_col = ant
-                for v_row, v_col in self.vision_offsets_2:
-                    self.vision[a_row+v_row][a_col+v_col] = True
-        row, col = loc
-        return self.vision[row][col]
-
-    def visible_from(self, loc):
-        ' determine which squares are visible to the given player '
-
+    def generate_vision_offsets_per(self):
+        if not hasattr(self, 'vision_offsets_per_2'):
+            # precalculate squares around an ant to set as visible
+            self.vision_offsets_per_2 = []
+            mx = int(sqrt(self.viewradius2))
+            for d_row in range(-mx,mx+1):
+                # left
+                for d_col in range(-mx,mx+1):
+                    d = d_row**2 + d_col**2
+                    if d <= self.viewradius2:
+                        self.vision_offsets_per_2.append((
+                            d_row%self.rows-self.rows,
+                            d_col%self.cols-self.cols
+                        ))
+                        break;
+                #right
+                for d_col in reversed(range(-mx,mx+1)):
+                    d = d_row**2 + d_col**2
+                    if d <= self.viewradius2:
+                        self.vision_offsets_per_2.append((
+                            d_row%self.rows-self.rows,
+                            d_col%self.cols-self.cols
+                        ))
+                        break;
+        #ld("Visible offests peremiter: %s",self.vision_offsets_per_2)
+    def generate_vision_offsets(self):
         if not hasattr(self, 'vision_offsets_2'):
             # precalculate squares around an ant to set as visible
             self.vision_offsets_2 = []
@@ -388,11 +393,36 @@ class Ants():
                             d_row%self.rows-self.rows,
                             d_col%self.cols-self.cols
                         ))
+    def genereate_vision(self):
+        if self.vision == None:
+            self.generate_vision_offsets()
+            # set all spaces as not visible
+            # loop through ants and set all squares around ant as visible
+            self.vision = [[False]*self.cols for row in range(self.rows)]
+            for ant in self.my_ants():
+                a_row, a_col = ant
+                for v_row, v_col in self.vision_offsets_2:
+                    self.vision[a_row+v_row][a_col+v_col] = True
+
+    def visible(self, loc):
+        ' determine which squares are visible to the given player '
+        self.genereate_vision()
+        row, col = loc
+        return self.vision[row][col]
+
+    def visible_from_per(self, loc):
+        self.generate_vision_offsets_per()
+        return self.__visible_from(loc,self.vision_offsets_per_2)
+    def visible_from(self, loc):
+        ' determine which squares are visible to the given player '
+        self.generate_vision_offsets()
+        return self.__visible_from(loc,self.vision_offsets_2)
+    def __visible_from(self,loc,offsets):
         # set all spaces as not visible
         # loop through ants and set all squares around ant as visible
         a_row, a_col = loc
         this_vision = []
-        for v_row, v_col in self.vision_offsets_2:
+        for v_row, v_col in offsets:
             this_vision.append( (a_row+v_row,a_col+v_col) )
         return this_vision
     

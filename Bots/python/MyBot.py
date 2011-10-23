@@ -5,20 +5,34 @@ import logging
 import sys
 from optparse import OptionParser
 
+################################################################################
 logLevel = logging.DEBUG
 logging.basicConfig()
 logger = logging.getLogger("MyBot")
 logger.setLevel(logLevel)
 
+hdlr = logging.FileHandler('/tmp/MyBot.log')
+formatter = logging.Formatter('%(relativeCreated)d %(levelname)s %(message)s')
+hdlr.setFormatter(formatter)
+logger.addHandler(hdlr)
+logger.propagate = False
+
+
 ld = logger.debug
 li = logger.info
 lw = logger.warning
+################################################################################
 
 Antimation = None
 try:
     from __MyAntimation import Antimation
 except ImportError:
     pass
+
+
+# :TODO: 
+#    How to run in profiler? Are we not exiting cleanly?
+#
 
 
 # define a class with a do_turn method
@@ -36,6 +50,7 @@ class MyBot:
             self.Debug = Antimation()
             self.DebugInfo={}
         self.turn_count=0
+        self.turn_time=0
         pass
     
     # do_setup is run once at the start of the game
@@ -49,16 +64,25 @@ class MyBot:
         pass
 
     def send_ant(self,ants,a,loc,destinations=[]):
+        if a==loc: return a
         directions = ants.direction(a, loc)
-        random.shuffle(directions)
-        for direction in directions:
-            new_loc = ants.destination(a, direction)
-            if ants.passable(new_loc) and not new_loc in destinations:
-                destinations.append(new_loc)
-                ants.issue_order((a, direction))
-                self.update_vel(a,new_loc,direction)
-                #ld("a: %s -> %s", a, new_loc)
-                return a
+        if len(directions)!=1: ld("hmmm, unexpected")
+        d=directions[0]
+        #random.shuffle(directions)
+        #for direction in directions:
+        #    new_loc = ants.destination(a, direction)
+        #    #if ants.passable(new_loc) and not new_loc in destinations:
+        #    if ants.unoccupied(new_loc) and not new_loc in destinations:
+        #        destinations.append(new_loc)
+        #        ants.issue_order((a, direction))
+        #        self.update_vel(a,new_loc,direction)
+        #        #ld("a: %s -> %s", a, new_loc)
+        #        return a
+        if ants.unoccupied(loc) and not loc in destinations:
+            destinations.append(loc)
+            ants.issue_order((a, d))
+            self.update_vel(a,loc,d)
+            return a
         return None
 
     def near_home(self,ants,pos):
@@ -77,15 +101,16 @@ class MyBot:
 
     def good_stuff(self,ants):
         hills = self.known_bases
-        my_ants = ants.food()
+        food = ants.food()
         # TODO add enemy ants near base
-        return my_ants + [x for x in hills]
+        return food + [x for x in hills] + [a for a in self.attacking_enemys]
     # do turn is run once per turn
     # the ants class has the game state and is updated by the Ants.run method
     # it also has several helper methods to use
     def do_turn(self, ants):
         self.turn_count+=1
-        ld("--------------------%d--------------------",self.turn_count)
+        t1 = time.time()
+        ld("--------------------%d-------------------- %s",self.turn_count, self.turn_time)
         # loop through all my ants and try to give them orders
         # the ant_loc is an ant location tuple in (row, col) form
         destinations = []
@@ -98,6 +123,21 @@ class MyBot:
             self.DebugInfo["round_scores"]= []
             self.DebugInfo["rows"]=self.rows
             self.DebugInfo["cols"]=self.cols
+
+        def build_atacking_enemy_table():
+            self.attacking_enemys = set()
+            for h in ants.my_hills():
+                for a,_ in ants.enemy_ants():
+                    if ants.distance(h,a)<self.NEAR:
+                        self.attacking_enemys.add(a)
+        build_atacking_enemy_table()
+
+        def build_visibility_table():
+            self.visible = defaultdict(lambda:0)
+            for a in ants.my_ants():
+                for v in ants.visible_from(a):
+                    self.visible[a]+=1
+        #build_visibility_table()
 
         # Update known bases
         #  remove dead bases
@@ -122,6 +162,8 @@ class MyBot:
             self.ants_to_search += [a for _,a,_ in ant_dist[0:4]]
 
         self.close_food = {}
+        
+        ants_for_sale = [[( (d,self.objective_function(ants,a,d)), a ) for d in ants.neighbors(a)] for a in self.round_ants]
         for ant_loc in self.round_ants:
             #self.close_food[ant_loc] = self.find_close_food(ants,ant_loc)
             self.visited_map.add(ant_loc)
@@ -155,6 +197,8 @@ class MyBot:
             #        mi = min(mi,A[x][y])
             #self.DebugInfo["all_objective"] = A
             self.Debug.put(self.DebugInfo)
+        t2 = time.time()
+        self.turn_time=t2-t1
 
     # Define: objfuncs return HIGH value for BADness, LOW value for GOODness (can be negative)
     def enemy_objfunc(self, ants, ant_pos, pos):
@@ -185,9 +229,10 @@ class MyBot:
             if len(the_path)>1 and the_path[0]==ant_pos: the_path = the_path[1::] # Pop start position from path
             if pos == the_path[0]: return the_score
             return ants.MAXPATH # wouldnt choose it anyway (FIXME: causes problems when first choice cannot be taken)
-        dists = sorted([(ants.distance(pos,f),f) for f in self.good_stuff(ants)])[0:3]
+        dists = sorted([(ants.distance(pos,f),f) for f in self.good_stuff(ants)])
         gs = [f for _,f in dists]
-        return ants.path(pos,gs)[0]
+        the_score,the_path = ants.path(pos,gs)
+        return the_score
     def food_objfunc(self,ants,ant_pos,pos):
         """ object function for food. Closest ant should go for the food"""
         return min([ants.MAXPATH] + [ants.path(pos,ants.food())[0]])
@@ -207,7 +252,7 @@ class MyBot:
         d = self.get_vel_dir(ant_pos)
         if d and ants.destination(ant_pos, d) == pos: return ants.MAXPATH -1
         return ants.MAXPATH
-    def visability_objfunc(self,ants,ant_pos,pos):
+    def visibility_objfunc(self,ants,ant_pos,pos):
         if not ant_pos: return ants.MAXPATH
         visible_others = set()
         my_ants = [a for a in ants.my_ants()]
@@ -240,14 +285,21 @@ class MyBot:
 
     # :TODO: Travel in groups of 3+?
     # :TODO: Assign ants types: HUNGRY, FIGHTER, BOMBER, DEFENCE .. proportion something like 40,10,40,10
+    #def of_call(self,ants,a,n,f):
+    #    t1 = time.time()
+    #    r=f(ants,a,n)
+    #    t2 = time.time()
+    #    ld("of %s",int(1000000*(t2-t1)))
+    #    return r
     def objective_function(self, ants, ant_pos, pos):
         if not ants.passable(pos): return ants.MAXPATH*2
         if pos in ants.my_hills(): return ants.MAXPATH*2
-        of = [self.enemy_objfunc, self.good_objfunc, self.explor_objfunc, self.visability_objfunc]
+        of = [self.enemy_objfunc, self.good_objfunc, self.explor_objfunc ]
         o = [f(ants,ant_pos,pos) for f in of]
+        #o = [self.of_call(ants,ant_pos,pos,f) for f in of]
         if self.Debug:
             self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
-        ld("obj_func: %s->%s=%s",ant_pos,pos,o)
+        #ld("obj_func: %s->%s=%s",ant_pos,pos,o)
         return min(o)
 
     def update_vel(self,ant_loc,new_loc,direction):
@@ -279,3 +331,5 @@ if __name__ == '__main__':
         Ants.run(MyBot())
     except KeyboardInterrupt:
         print('ctrl-c, leaving ...')
+    except Exception as e:
+        traceback.print_exc(file=sys.stderr)
