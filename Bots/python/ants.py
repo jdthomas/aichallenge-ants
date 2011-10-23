@@ -358,28 +358,28 @@ class Ants():
     def generate_vision_offsets_per(self):
         if not hasattr(self, 'vision_offsets_per_2'):
             # precalculate squares around an ant to set as visible
-            self.vision_offsets_per_2 = []
+            self.vision_offsets_per_2 = set()
             mx = int(sqrt(self.viewradius2))
+            ld("mx: %s, vr: %s",mx,self.viewradius2)
             for d_row in range(-mx,mx+1):
-                # left
                 for d_col in range(-mx,mx+1):
                     d = d_row**2 + d_col**2
                     if d <= self.viewradius2:
-                        self.vision_offsets_per_2.append((
-                            d_row%self.rows-self.rows,
-                            d_col%self.cols-self.cols
-                        ))
-                        break;
-                #right
-                for d_col in reversed(range(-mx,mx+1)):
-                    d = d_row**2 + d_col**2
-                    if d <= self.viewradius2:
-                        self.vision_offsets_per_2.append((
-                            d_row%self.rows-self.rows,
-                            d_col%self.cols-self.cols
-                        ))
-                        break;
-        #ld("Visible offests peremiter: %s",self.vision_offsets_per_2)
+                        x,y=d_row,d_col
+                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                        x,y=0-d_row,d_col
+                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                        x,y=d_row,0-d_col
+                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                        x,y=0-d_row,0-d_col
+                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                        break
+            self.vision_offsets_per_2 = sorted([a for a in self.vision_offsets_per_2])
+            #import numpy as NP
+            #import pylab
+            #pylab.scatter(*zip(*self.vision_offsets_per_2))
+            #pylab.savefig("/tmp/HeatMap/circle3.png")
+            #ld("Visible offests peremiter: %s",self.vision_offsets_per_2)
     def generate_vision_offsets(self):
         if not hasattr(self, 'vision_offsets_2'):
             # precalculate squares around an ant to set as visible
