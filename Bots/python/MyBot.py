@@ -23,13 +23,6 @@ li = logger.info
 lw = logger.warning
 ################################################################################
 
-Antimation = None
-try:
-    from __MyAntimation import Antimation
-except ImportError:
-    pass
-
-
 import signal
 class TimeoutException(Exception):
     pass
@@ -51,11 +44,6 @@ class MyBot:
         self.velocities = dict()
         self.visited_map = set()
         self.known_bases = set()
-        self.Debug = None
-        if Antimation:
-            ld("Got your debug code...")
-            self.Debug = Antimation()
-            self.DebugInfo={}
         self.turn_count=0
         self.turn_time=0
         signal.signal(signal.SIGALRM, timeout_handler)
@@ -124,38 +112,34 @@ class MyBot:
             self.good_cache={}
 
             self.round_ants = ants.my_ants()
-            if self.Debug:
-                self.DebugInfo={}
-                self.DebugInfo["round_scores"]= []
-                self.DebugInfo["rows"]=self.rows
-                self.DebugInfo["cols"]=self.cols
-
             def build_atacking_enemy_table():
                 self.attacking_enemys = set()
                 for h in ants.my_hills():
                     for a,_ in ants.enemy_ants():
                         if ants.distance(h,a)<self.NEAR:
                             self.attacking_enemys.add(a)
-            build_atacking_enemy_table()
 
             def build_visibility_table():
                 self.visible = defaultdict(lambda:0)
                 for a in ants.my_ants():
                     for v in ants.visible_from(a):
                         self.visible[a]+=1
-            build_visibility_table()
 
-            # Update known bases
-            #  remove dead bases
-            dead_bases = []
-            for h in self.known_bases:
-                if h not in ants.enemy_hills() and ants.visible(h):
-                    dead_bases.append(h)
-            for h in dead_bases:
-                self.known_bases.remove(h)
-            #  add new bases
-            for h in ants.enemy_hills():
-                self.known_bases.add(h[0])
+            def update_bases():
+                dead_bases = []
+                for h in self.known_bases:
+                    if h not in ants.enemy_hills() and ants.visible(h):
+                        dead_bases.append(h)
+                #  remove dead bases
+                for h in dead_bases:
+                    self.known_bases.remove(h)
+                #  add new bases
+                for h in ants.enemy_hills():
+                    self.known_bases.add(h[0])
+
+            build_atacking_enemy_table()
+            build_visibility_table()
+            update_bases()
 
             # Decide which ants to do path finding on (lets say 3 closest to any object)
             self.ants_to_search = []
@@ -184,18 +168,6 @@ class MyBot:
     #                ld("OH FUCK, OUT OF TIME!!!")
                     break
             ### Draw my heat map
-            if self.Debug:
-                #A = [[0 for col in range(self.cols)] for row in range(self.rows)] #A = NP.zeros((self.rows,self.cols))
-                #mi,ma = 9999999,0
-                #for x in range(self.rows):
-                #    for y in range(self.cols):
-                #        A[x][y] = 1 #self.objective_function(ants,None,(x,y))
-                #        #ld("loop: %d %d", x,y)
-                #        #A[x][y] = self.objective_function(ants,None,(x,y))
-                #        ma = max(ma,A[x][y])
-                #        mi = min(mi,A[x][y])
-                #self.DebugInfo["all_objective"] = A
-                self.Debug.put(self.DebugInfo)
             signal.setitimer(signal.ITIMER_REAL, 0)
         except TimeoutException:
             ld("You almost expired!!")
@@ -260,8 +232,6 @@ class MyBot:
         of = [self.good_objfunc, self.explor_objfunc, self.visibility_objfunc]
         o = [f(ants,ant_pos,pos) for f in of]
         #o = [self.of_call(ants,ant_pos,pos,f) for f in of]
-        if self.Debug:
-            self.DebugInfo["round_scores"].append((pos[0],pos[1],min(o)))
         ld("obj_func: %s->%s=%s",ant_pos,pos,o)
         return min(o)
 
