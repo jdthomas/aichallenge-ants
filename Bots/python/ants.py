@@ -241,8 +241,8 @@ class Ants():
             v,vs=Q.pop(0)
             seen.add(v)
             #ld("bfs: popped %s %s", v,vs)
-            if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (self.MAXPATH,start)
-            if search_counter > 2**12:  ld("bfs: Search too far") ; return (self.MAXPATH,start)
+            #if self.time_remaining() < 30: ld("bfs: TIMEOUT, OH FUCK!!! %s",search_counter); return (self.MAXPATH,start)
+            #if search_counter > 2**12:  ld("bfs: Search too far") ; return (self.MAXPATH,start)
             if(v in goals):
                 pth = self.__reconstruct_path(came_from,v)
                 #ld("bfs: steps=%d v=%s, score=%d(%d), %s",search_counter,v,vs,len(pth),pth)
@@ -289,10 +289,10 @@ class Ants():
                 #ld("a_star: steps=%d score=%d(%d) path: %s",
                 #        search_counter,x_score, len(pth),pth )
                 return (x_score,pth)
-            if self.time_remaining() < 30 or search_counter > 2**11:
-                pth = self.__reconstruct_path(came_from,x)
-                ld("a_star:Search too far: %s@%s (%s)",x_score,pth,search_counter) 
-                return (x_score,pth)
+            #if self.time_remaining() < 30 or search_counter > 2**11:
+            #    pth = self.__reconstruct_path(came_from,x)
+            #    ld("a_star:Search too far: %s@%s (%s)",x_score,pth,search_counter) 
+            #    return (x_score,pth)
             openset.remove(x)
             closedset.add(x)
             for y in self.neighbors(x):
