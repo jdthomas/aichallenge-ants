@@ -318,7 +318,6 @@ class Ants():
 
     def distance(self, loc1, loc2):
         'calculate the closest distance between to locations'
-        #:TODO: do a path search in the map here
         row1, col1 = loc1
         row2, col2 = loc2
         d_col = min(abs(col1 - col2), self.cols - abs(col1 - col2))
