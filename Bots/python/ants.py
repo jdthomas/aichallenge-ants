@@ -45,6 +45,14 @@ logging.basicConfig()
 logger = logging.getLogger("Ants")
 logger.setLevel(logLevel)
 
+LOCAL_DEBUG=False
+if LOCAL_DEBUG:
+    hdlr = logging.FileHandler('/tmp/MyBot.log')
+    formatter = logging.Formatter('%(relativeCreated)d %(levelname)s %(message)s')
+    hdlr.setFormatter(formatter)
+    logger.addHandler(hdlr)
+    logger.propagate = False
+
 ld = logger.debug
 li = logger.info
 lw = logger.warning
@@ -95,9 +103,16 @@ class Ants():
                     self.spawnradius2 = int(tokens[1])
                 elif key == 'turns':
                     self.turns = int(tokens[1])
-        self.MAXPATH = (self.rows + self.cols)*2
+        #self.MAXPATH = (self.rows + self.cols)*4
+        self.MAXPATH = (self.rows * self.cols)
+        self.A_STAR_TIE_BREAKER = 1.0/self.MAXPATH
+        #ld("A_STAR_TIE_BREAKER: %s", self.A_STAR_TIE_BREAKER)
         self.map = [[UNSEEN for col in range(self.cols)]
                     for row in range(self.rows)]
+        # Generate these offsets now, no since in wasting turn time on it
+        self.generate_attack_offsets()
+        self.generate_vision_offsets()
+        self.generate_vision_offsets_per()
 
     def update(self, data):
         'parse engine input and update the game state'
@@ -148,7 +163,7 @@ class Ants():
                         elif tokens[0] == 'd':
                             # food could spawn on a spot where an ant just died
                             # don't overwrite the space unless it is land
-                            if self.map[row][col] == LAND:
+                            if self.map[row][col] == LAND or self.map[row][col] == UNSEEN:
                                 self.map[row][col] = DEAD
                             # but always add to the dead list
                             self.dead_list[(row, col)].append(owner)
@@ -260,55 +275,68 @@ class Ants():
         #ld("bfs: NO PATH FOUND")
         return (self.MAXPATH,[start])
 
+    def reset_a_star(self):
+        self.closedset = set()
+        self.openset = set()
+        self.g_score = {}
+        self.f_score = {}
+        self.h_score = {}
     def a_star(self, start, goals):
         #ld("a_star: %s->%s",start,goals)
+        if start in goals: return (0,[start])
         search_counter = 0
-        closedset = set()
-        openset = set()
-        g_score = {}
-        h_score = {}
-        f_score = {}
         came_from = {}
 
-        openset.add(start)
-        g_score[start] = 0
-        h_score[start] = min([self.distance(start,goal) for goal in goals])
-        f_score[start] = g_score[start]+h_score[start]
+        ### I think I can reuse some of this too ... ###
+        self.closedset = set()
+        self.openset = set()
+        self.g_score = {}
+        self.f_score = {}
+
+        self.closedset.discard(start)
+        self.openset.add(start)
+        self.g_score[start] = 0
+        self.h_score[start] = min([self.distance(start,goal) for goal in goals])
+        self.f_score[start] = self.g_score[start]+self.h_score[start]
         def best_guess():
-            #blah = sorted([(f_score[a],a) for a in openset])
-            mv,m = min([(f_score[a],a) for a in openset])
+            #blah = sorted([(self.f_score[a],a) for a in self.openset])
+            mv,m = min([(self.f_score[a],a) for a in self.openset])
             #ld("best_guess: %s:%s:%s",m,mv,blah)
             return m
+        def hueristic(y,goals):
+            if y in self.h_score: return self.h_score[y]
+            return min([self.distance(y,goal) for goal in goals]) * (1.0+self.A_STAR_TIE_BREAKER)
 
-        while openset:
+        while self.openset:
             search_counter+=1
             x = best_guess()
-            x_score = f_score[x]
+            x_score = self.f_score[x]
             if x in goals: 
                 pth = self.__reconstruct_path(came_from,x)
                 #ld("a_star: steps=%d score=%d(%d) path: %s",
                 #        search_counter,x_score, len(pth),pth )
+                # :TODO: update h_score with more accurate score?
                 return (x_score,pth)
             #if self.time_remaining() < 30 or search_counter > 2**11:
             #    pth = self.__reconstruct_path(came_from,x)
             #    ld("a_star:Search too far: %s@%s (%s)",x_score,pth,search_counter) 
             #    return (x_score,pth)
-            openset.remove(x)
-            closedset.add(x)
+            self.openset.remove(x)
+            self.closedset.add(x)
             for y in self.neighbors(x):
-                if y in closedset: continue
-                tenative_g_score = g_score[x] + 1
+                if y in self.closedset: continue
+                tenative_g_score = self.g_score[x] + 1
                 tenative_is_better = False
-                if y not in openset:
-                    openset.add(y)
+                if y not in self.openset:
+                    self.openset.add(y)
                     tenative_is_better = True
-                elif tenative_g_score < g_score[y]:
+                elif tenative_g_score < self.g_score[y]:
                     tenative_is_better = True
                 if tenative_is_better:
                     came_from[y] = x
-                    g_score[y] = tenative_g_score
-                    h_score[y] = min([self.distance(y,goal) for goal in goals])
-                    f_score[y] = g_score[y] + h_score[y]
+                    self.g_score[y] = tenative_g_score
+                    self.h_score[y] = hueristic(y,goals)
+                    self.f_score[y] = self.g_score[y] + self.h_score[y]
         return (self.MAXPATH,[start])
 
     def path(self, start, goals):
@@ -359,7 +387,7 @@ class Ants():
             # precalculate squares around an ant to set as visible
             self.vision_offsets_per_2 = set()
             mx = int(sqrt(self.viewradius2))
-            ld("mx: %s, vr: %s",mx,self.viewradius2)
+            #ld("vision mx: %s, vr: %s",mx,self.viewradius2)
             for d_row in range(-mx,mx+1):
                 for d_col in range(-mx,mx+1):
                     d = d_row**2 + d_col**2
@@ -374,16 +402,19 @@ class Ants():
                         self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
                         break
             self.vision_offsets_per_2 = sorted([a for a in self.vision_offsets_per_2])
+            self.generate_vision_offsets()
+            #ld("Visible offests peremiter: %s",self.vision_offsets_per_2)
             #import numpy as NP
             #import pylab
+            #pylab.clf()
             #pylab.scatter(*zip(*self.vision_offsets_per_2))
-            #pylab.savefig("/tmp/HeatMap/circle3.png")
-            #ld("Visible offests peremiter: %s",self.vision_offsets_per_2)
+            #pylab.savefig("/tmp/HeatMap/VisiblePer.png")
     def generate_vision_offsets(self):
         if not hasattr(self, 'vision_offsets_2'):
             # precalculate squares around an ant to set as visible
             self.vision_offsets_2 = []
             mx = int(sqrt(self.viewradius2))
+            #ld("vision mx: %s, vr: %s",mx,self.viewradius2)
             for d_row in range(-mx,mx+1):
                 for d_col in range(-mx,mx+1):
                     d = d_row**2 + d_col**2
@@ -392,6 +423,39 @@ class Ants():
                             d_row%self.rows-self.rows,
                             d_col%self.cols-self.cols
                         ))
+            #import numpy as NP
+            #import pylab
+            #pylab.clf()
+            #pylab.scatter(*zip(*self.vision_offsets_2))
+            #pylab.savefig("/tmp/HeatMap/Visible.png")
+    def generate_attack_offsets(self):
+        if not hasattr(self, 'attack_offsets_2'):
+            # precalculate squares around an ant to set as visible
+            self.attack_offsets_2 = []
+            mx = int(sqrt(self.attackradius2))
+            #ld("attack mx: %s, vr: %s",mx,self.attackradius2)
+            for d_row in range(-mx,mx+1):
+                for d_col in range(-mx,mx+1):
+                    d = d_row**2 + d_col**2
+                    if d <= self.attackradius2:
+                        self.attack_offsets_2.append((
+                            d_row%self.rows-self.rows,
+                            d_col%self.cols-self.cols
+                        ))
+            #ld("Attackable offests: %s",self.attack_offsets_2)
+            #import numpy as NP
+            #import pylab
+            #pylab.clf()
+            #pylab.scatter(*zip(*self.attack_offsets_2))
+            #pylab.savefig("/tmp/HeatMap/attack.png")
+    def attackable_from(self, loc):
+        ' determine which squares are attackable from loc '
+        self.generate_attack_offsets()
+        a_row, a_col = loc
+        this_attack = []
+        for v_row, v_col in self.attack_offsets_2:
+            this_attack.append( ((a_row+v_row)%self.rows,(a_col+v_col)%self.cols) )
+        return this_attack
     def genereate_vision(self):
         if self.vision == None:
             self.generate_vision_offsets()
@@ -422,7 +486,7 @@ class Ants():
         a_row, a_col = loc
         this_vision = []
         for v_row, v_col in offsets:
-            this_vision.append( (a_row+v_row,a_col+v_col) )
+            this_vision.append( ((a_row+v_row)%self.rows,(a_col+v_col)%self.cols) )
         return this_vision
     
     def render_text_map(self):
