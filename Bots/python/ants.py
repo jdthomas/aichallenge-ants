@@ -45,14 +45,6 @@ logging.basicConfig()
 logger = logging.getLogger("Ants")
 logger.setLevel(logLevel)
 
-LOCAL_DEBUG=False
-if LOCAL_DEBUG:
-    hdlr = logging.FileHandler('/tmp/MyBot.log')
-    formatter = logging.Formatter('%(relativeCreated)d %(levelname)s %(message)s')
-    hdlr.setFormatter(formatter)
-    logger.addHandler(hdlr)
-    logger.propagate = False
-
 ld = logger.debug
 li = logger.info
 lw = logger.warning
@@ -76,6 +68,7 @@ class Ants():
         self.spawnradius2 = 0
         self.turns = 0
         self.MAXPATH = 9999999
+        self.MAXDIST = 9999999
         self.path_cache = {}
 
     def setup(self, data):
@@ -103,8 +96,8 @@ class Ants():
                     self.spawnradius2 = int(tokens[1])
                 elif key == 'turns':
                     self.turns = int(tokens[1])
-        #self.MAXPATH = (self.rows + self.cols)*4
-        self.MAXPATH = (self.rows * self.cols)
+        self.MAXDIST = (self.rows + self.cols)/2
+        self.MAXPATH = (self.rows * self.cols)/2
         self.A_STAR_TIE_BREAKER = 1.0/self.MAXPATH
         #ld("A_STAR_TIE_BREAKER: %s", self.A_STAR_TIE_BREAKER)
         self.map = [[UNSEEN for col in range(self.cols)]
@@ -382,68 +375,70 @@ class Ants():
                 d.append('w')
         return d
 
+    def generate_circle_per(self,rad_2):
+        circle = set()
+        mx = int(sqrt(rad_2))
+        inrad_2 = (mx-1)**2
+        ld("circle_per mx: %s, r: %s r2: %s",mx,rad_2,inrad_2)
+        for d_row in range(-mx,mx+1):
+            for d_col in range(-mx,mx+1):
+                d = d_row**2 + d_col**2
+                #if inrad_2 < d <= rad_2:
+                #    x,y=d_row,d_col
+                #    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                if d <= rad_2:
+                    x,y=d_row,d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    x,y=0-d_row,d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    x,y=d_row,0-d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    x,y=0-d_row,0-d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+
+                    y,x=d_row,d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    y,x=0-d_row,d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    y,x=d_row,0-d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    y,x=0-d_row,0-d_col
+                    circle.add((x%self.rows-self.rows,y%self.cols-self.cols))
+                    break
+        return sorted([a for a in circle])
+    def generate_circle_fill(self,rad_2):
+        circle = []
+        mx = int(sqrt(rad_2))
+        ld("circle mx: %s, r: %s",mx,rad_2)
+        for d_row in range(-mx,mx+1):
+            for d_col in range(-mx,mx+1):
+                d = d_row**2 + d_col**2
+                if d <= rad_2:
+                    circle.append((
+                        d_row%self.rows-self.rows,
+                        d_col%self.cols-self.cols
+                    ))
+        return circle
     def generate_vision_offsets_per(self):
         if not hasattr(self, 'vision_offsets_per_2'):
-            # precalculate squares around an ant to set as visible
-            self.vision_offsets_per_2 = set()
-            mx = int(sqrt(self.viewradius2))
-            #ld("vision mx: %s, vr: %s",mx,self.viewradius2)
-            for d_row in range(-mx,mx+1):
-                for d_col in range(-mx,mx+1):
-                    d = d_row**2 + d_col**2
-                    if d <= self.viewradius2:
-                        x,y=d_row,d_col
-                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
-                        x,y=0-d_row,d_col
-                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
-                        x,y=d_row,0-d_col
-                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
-                        x,y=0-d_row,0-d_col
-                        self.vision_offsets_per_2.add((x%self.rows-self.rows,y%self.cols-self.cols))
-                        break
-            self.vision_offsets_per_2 = sorted([a for a in self.vision_offsets_per_2])
-            self.generate_vision_offsets()
+            self.vision_offsets_per_2 = self.generate_circle_per(self.viewradius2)
             #ld("Visible offests peremiter: %s",self.vision_offsets_per_2)
-            #import numpy as NP
             #import pylab
             #pylab.clf()
             #pylab.scatter(*zip(*self.vision_offsets_per_2))
             #pylab.savefig("/tmp/HeatMap/VisiblePer.png")
     def generate_vision_offsets(self):
         if not hasattr(self, 'vision_offsets_2'):
-            # precalculate squares around an ant to set as visible
-            self.vision_offsets_2 = []
-            mx = int(sqrt(self.viewradius2))
-            #ld("vision mx: %s, vr: %s",mx,self.viewradius2)
-            for d_row in range(-mx,mx+1):
-                for d_col in range(-mx,mx+1):
-                    d = d_row**2 + d_col**2
-                    if d <= self.viewradius2:
-                        self.vision_offsets_2.append((
-                            d_row%self.rows-self.rows,
-                            d_col%self.cols-self.cols
-                        ))
-            #import numpy as NP
+            self.vision_offsets_2 = self.generate_circle_fill(self.viewradius2)
+            #ld("Visible offests: %s",self.vision_offsets_2)
             #import pylab
             #pylab.clf()
             #pylab.scatter(*zip(*self.vision_offsets_2))
             #pylab.savefig("/tmp/HeatMap/Visible.png")
     def generate_attack_offsets(self):
         if not hasattr(self, 'attack_offsets_2'):
-            # precalculate squares around an ant to set as visible
-            self.attack_offsets_2 = []
-            mx = int(sqrt(self.attackradius2))
-            #ld("attack mx: %s, vr: %s",mx,self.attackradius2)
-            for d_row in range(-mx,mx+1):
-                for d_col in range(-mx,mx+1):
-                    d = d_row**2 + d_col**2
-                    if d <= self.attackradius2:
-                        self.attack_offsets_2.append((
-                            d_row%self.rows-self.rows,
-                            d_col%self.cols-self.cols
-                        ))
+            self.attack_offsets_2 = self.generate_circle_fill(self.attackradius2)
             #ld("Attackable offests: %s",self.attack_offsets_2)
-            #import numpy as NP
             #import pylab
             #pylab.clf()
             #pylab.scatter(*zip(*self.attack_offsets_2))
@@ -502,8 +497,15 @@ class Ants():
     # static methods are not tied to a class and don't have self passed in
     # this is a python decorator
     @staticmethod
-    def run(bot):
+    def run(bot,debug=False):
         'parse input, update game state and call the bot classes do_turn method'
+        if debug:
+            hdlr = logging.FileHandler('/tmp/MyBot.log')
+            formatter = logging.Formatter('%(relativeCreated)d %(levelname)s %(message)s')
+            hdlr.setFormatter(formatter)
+            logger.addHandler(hdlr)
+            logger.propagate = False
+
         ants = Ants()
         map_data = ''
         while(True):

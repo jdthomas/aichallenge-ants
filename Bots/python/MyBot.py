@@ -26,7 +26,37 @@ def exit_handler(signum, frame):
     sys.exit("WHOOPS, die")
 
 # :TODO:
-#   a_star, reuse f_score table for repeated searches in a round? Goals are always same.
+#   [X] Fix permeter of circle generator
+#   [ ] Movement, need to handle case where will move into currently ocupied
+#       cell  (ant has moved for instance)
+#   [ ] Attack:
+#   [ ]     Expand "danger" code to attack code.
+#   [ ]     min-max attack code?
+#   [ ] Weight hill attack higher than food? Send multiple ants to hills?
+#   [ ] Momentum should be scored 100/50/50/0 to weight continuing on diags?
+#   [ ] Symmetry detection in map:
+#   [ ]     Basic detection as I exlor
+#   [ ]     Predicted hills added to "good stuff" list
+#   [ ]     ?? Locations that would help with the symmetry detection should be
+#           weighted??
+#   [ ]     Do path finding in symmetry expaned map
+#   [ ] Between turn logic:
+#   [ ]     If attacking hill w/o enough force (want hill, will die) bring more
+#           forces
+#   [ ]     Speedup of "stuff" by not redoing some calculations??
+#   [ ]     Cache found shortest paths if not tainted by UNSEEN? Gather
+#           statistics on how many times I re-search a path, is worthwhile?
+#   [ ] Visibile_from can be MUCH faster by just checking if r**2+y**2<vr2
+#   [ ] Remember invisible food, remove when visible but not there (like done
+#       with hills)
+#   [ ] What about Fluxid's gradient for exploring, distance to unseen squares.
+#       How does he build this efficiently? BFS? Yes, BFS from all objectives,
+#       update every n rounds.
+#   [ ] Change ant assignments, give paths to ants, don't re-search these each
+#       round. Check that the goal still exists and perform enemy
+#       attack/avoidance, then regain path.
+#   [ ] Better utilization of 'extra' CPU time per turn.
+#   [ ] Port to c? setjmp/longjmp for timeout?
 
 
 # define a class with a do_turn method
@@ -97,7 +127,7 @@ class MyBot:
         try:
             timeout = float(ants.time_remaining() - 100)/1000
             a = signal.setitimer(signal.ITIMER_REAL, timeout)
-            #ld("--------------------%d-------------------- %s,%s",self.turn_count, self.turn_time,timeout)
+            ld("--------------------%d-------------------- %s,%s",self.turn_count, self.turn_time,timeout)
             # loop through all my ants and try to give them orders
             # the ant_loc is an ant location tuple in (row, col) form
             destinations = []
@@ -116,7 +146,7 @@ class MyBot:
                 self.danger = defaultdict(lambda:0)
                 for e,_ in ants.enemy_ants():
                     # TODO instead of iterating neighbors, increase radius by 1
-                    for a in ants.neighbors(e): # we don't know their move
+                    for a in [e]+ants.neighbors(e): # we don't know their move
                     #a = e
                         for t in ants.attackable_from(a):
                             self.danger[t]+=1
@@ -152,7 +182,7 @@ class MyBot:
             def defense():
                 """ Once we have 10 ants, assign defense. If we have more than
                     20 ants per hill, assign 2. """
-                t1 = time.time()
+                #t1 = time.time()
                 if not ants.my_hills() or len(self.round_ants)<10: return
                 num_defenders_per_hill = max(1,min(2,len(self.round_ants)/(20*len(ants.my_hills()))))
                 for h in ants.my_hills():
@@ -163,21 +193,7 @@ class MyBot:
                     ant_dist.sort()
                     for df in range(num_defenders_per_hill):
                         self.defenders.append( (ant_dist.pop(0)[1],h) )
-                #for da,dh in self.defenders:
-                #    nei = [n for n in ants.neighbors(dh) if n==da or ants.unoccupied(n)]
-                #    if not nei: break
-                #    score,path = ants.path(da,nei)
-                #    if len(path)>1 and path[0]==da: path = path[1::] # Pop start position from path
-                #    dg=path[0]
-                #    x = self.send_ant(ants,da,dg,destinations)
-                #    if x:
-                #        #ld("Assigning %s to guard %s by visiting %s",da,dh,dg)
-                #        self.round_ants.remove(da) # don't allow assignment elsewhere
-                ### BADLY BROKEN ###
-                # By sending the ants to this location near home and then
-                # removing them from the list, they do not actually attack
-                # incoming enemys. Nor gather food near the base, etc.
-                t2 = time.time()
+                #t2 = time.time()
                 #ld("Defenders: %s, %s", num_defenders_per_hill, t2-t1)
 
             build_atacking_enemy_table()
@@ -204,7 +220,9 @@ class MyBot:
             def assign_some_ants(ant_list):
                 for ant_loc in ant_list:
                     self.visited_map.add(ant_loc)
-                    n = [a for a in ants.neighbors(ant_loc) if ants.unoccupied(a)]
+                    #n = [a for a in ants.neighbors(ant_loc) if ants.unoccupied(a)]
+                    n = [a for a in ants.neighbors(ant_loc)] + [ant_loc]
+                    #ld("Nei: %s:%s", ant_loc,n)
                     for score,new_loc in self.choose_move(ants,ant_loc,n):
                         x = self.send_ant(ants,ant_loc,new_loc,destinations)
                         if x:
@@ -273,9 +291,12 @@ class MyBot:
             the_score,the_path = ants.path(pos,gs)
             return float(the_score)/ants.MAXPATH
     def my_hill_objfunc(self,ants,ant_pos,pos):
-        if pos in ants.my_hills(): return 0.0
+        if pos in ants.my_hills(): return 0.0 # Don't sit on hill
         for da,dh in self.defenders:
-            if ant_pos == da: float(ants.MAXPATH-ants.distance(pos,dh))/ants.MAXPATH # Distnace metric here should be OK, these ants will always be recently spawned
+            if ant_pos == da:
+                dist = ants.distance(pos,dh)
+                ld("hill_obj: %s->%s: %s", pos,da,dist)
+                return float(10-dist)/10 # Distnace metric here should be OK, these ants will always be recently spawned
         return 0.5
     def visibility_objfunc(self,ants,ant_pos,pos):
         # first completely unseen:
@@ -286,33 +307,17 @@ class MyBot:
         next_vis = sum([1 for xy in ants.visible_from_per(pos) if self.visible[xy] == 0])
         if next_vis>cur_vis: return 1.0
         return 0.0
-    def visibility_objfunc_SLOW_ORIGIONAL(self,ants,ant_pos,pos):
-        if not ant_pos: return 0.0
-        visible_others = set()
-        my_ants = [a for a in ants.my_ants()]
-        my_ants.remove(ant_pos)
-        for a in my_ants:
-            for v in ants.visible_from(a):
-                visible_others.add(v)
-        visible_next = set(visible_others)
-        for v in ants.visible_from(pos):
-            visible_next.add(v)
-        # Will visible next reveal something we have not see?
-        if ants.check_unseen(visible_next):
-            return 1.0
-        visible_now = set(visible_others)
-        for v in ants.visible_from(ant_pos):
-            visible_now.add(v)
-        # Will the set of visible cells increase?
-        if len(visible_next - visible_now) > len(visible_now-visible_next):
-            return 1.0
-        return 0.0
     def momentum_objfunc(self,ants,ant_pos,pos):
         """Prefer same direction"""
+        backwards = {'n':'s','e':'w','s':'n','w':'e'}
         if not ant_pos: return 0.0
-        d = self.get_vel_dir(ant_pos)
-        if d and ants.destination(ant_pos, d) == pos: return 1.0
-        return 0.0
+        da = self.get_vel_dir(ant_pos)
+        dp = ants.direction(ant_pos, pos)
+        if not dp or not da: return 0.0
+        dp = dp[0]
+        if da == dp: return 1.0
+        if da == backwards[dp]: return 0.0
+        return 0.5
     def explor_objfunc(self,ants,ant_pos,pos):
         """Prefer unvisited areas"""
         ### TODO: Should be gradient of distance to unseen?
@@ -332,25 +337,22 @@ class MyBot:
             mv += [(f(ants,ant_loc,n),n) for n in nei]
         mv.sort()
         mv.reverse() # MAX best
-        #ld("choose_move: %s->%s", ant_loc,mv)
+        ld("choose_move: %s->%s", ant_loc,mv)
         return mv
 
     def objective_function(self, ants, ant_pos, pos):
-        #if not ants.passable(pos): return 2.0 #impossible to choose
-        #if pos in ants.my_hills(): return 2.0 #impossible to choose
-        of = [(self.good_objfunc,250),
-              #(self.explor_objfunc,250/3),
-              (self.visibility_objfunc,100),
-              (self.my_hill_objfunc,100),
-              (self.momentum_objfunc,50),
-              (self.enemy_objfunc,500),
+        of = [  (self.good_objfunc       , 250) ,
+                (self.visibility_objfunc , 100) ,
+                (self.my_hill_objfunc    , 100) ,
+                (self.momentum_objfunc   , 10)  ,
+                (self.enemy_objfunc      , 500) ,
               ]
         tw = sum([w for _,w in of])
         o = [(f(ants,ant_pos,pos))*w for f,w in of]
         def tie_breaker(): return random.random()*1/10000.0
         s = sum(o) + tie_breaker()
         m = max(o)
-        #ld("obj_func: %s->%s=%s => %s(%s)/%s",ant_pos,pos,o,s,m,tw)
+        ld("objectives: %s->%s=%s => %s(%s)/%s",ant_pos,pos,o,s,m,tw)
         return s
 
     def update_vel(self,ant_loc,new_loc,direction):
@@ -390,7 +392,7 @@ if __name__ == '__main__':
         # if run is passed a class with a do_turn method, it will do the work
         # this is not needed, in which case you will need to write your own
         # parsing function and your own game state class
-        Ants.run(MyBot())
+        Ants.run(MyBot(),debug=opts.debug)
     except KeyboardInterrupt:
         print('ctrl-c, leaving ...')
     except Exception as e:
