@@ -1,5 +1,5 @@
 #include "ants.h"
-
+#if 1 // math.h has this
 // returns the absolute value of a number; used in distance function
 
 int abs(int x) {
@@ -7,15 +7,17 @@ int abs(int x) {
         return x;
     return -x;
 }
+#endif
+
 
 // returns the distance between two items on the grid accounting for map wrapping
 
-int distance(int row1, int col1, int row2, int col2, struct game_info *Info) {
+float distance(int row1, int col1, int row2, int col2, struct game_info *Info) {
     int dr, dc;
     int abs1, abs2;
 
     abs1 = abs(row1 - row2);
-    abs2 = Info->rows - abs(row1 - row2);
+    abs2 = Info->rows - abs1;
 
     if (abs1 > abs2)
         dr = abs2;
@@ -23,20 +25,22 @@ int distance(int row1, int col1, int row2, int col2, struct game_info *Info) {
         dr = abs1;
 
     abs1 = abs(col1 - col2);
-    abs2 = Info->cols - abs(col1 - col2);
+    abs2 = Info->cols - abs1;
 
     if (abs1 > abs2)
         dc = abs2;
     else
         dc = abs1;
 
-    return sqrt(pow(dr, 2) + pow(dc, 2));
+	return sqrt(pow(dr, 2) + pow(dc, 2));
 }
 
 // sends a move to the tournament engine and keeps track of ants new location
 
 void move(int index, char dir, struct game_state* Game, struct game_info* Info) {
     fprintf(stdout, "O %i %i %c\n", Game->my_ants[index].row, Game->my_ants[index].col, dir);
+	int r = Game->my_ants[index].row;
+	int c = Game->my_ants[index].col;
 
     switch (dir) {
         case 'N':
@@ -64,6 +68,9 @@ void move(int index, char dir, struct game_state* Game, struct game_info* Info) 
                 Game->my_ants[index].col = Info->cols - 1;
             break;
     }
+
+    fprintf(stderr, "O %i %i %c -> %i %i\n", r,c,dir,Game->my_ants[index].row, Game->my_ants[index].col);
+	Info->map[Game->my_ants[index].row*Info->cols+Game->my_ants[index].col] = MOVE_OFFSET;
 }
 
 // just a function that returns the string on a given line for i/o
@@ -102,6 +109,8 @@ int main(int argc, char *argv[]) {
     Game.enemy_ants = 0;
     Game.food = 0;
     Game.dead_ants = 0;
+
+	freopen("/tmp/MyBot_c.log","wa+",stderr);
 
     while (42) {
         int initial_buffer = 100000;

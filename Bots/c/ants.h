@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 
 // this header is basically self-documenting
 
@@ -15,7 +16,7 @@ struct game_info {
 	int attackradius_sq;
 	int spawnradius_sq;
     int seed;
-	char *map;
+	uint8_t *map;
 };
 
 struct basic_ant {
@@ -48,3 +49,55 @@ struct game_state {
 
     int my_ant_index;
 };
+
+#define MAX_PLAYERS   		  9
+#define UNSEEN      ((uint8_t)0)
+#define WATER       ((uint8_t)UNSEEN+MAX_PLAYERS+1)
+#define LAND        ((uint8_t)WATER+MAX_PLAYERS+1)
+#define HILL        ((uint8_t)LAND+MAX_PLAYERS+1)
+#define FOOD        ((uint8_t)HILL+MAX_PLAYERS+1)
+#define ANT_OFFSET  ((uint8_t)FOOD+MAX_PLAYERS+1)
+#define HILL_OFFSET ((uint8_t)ANT_OFFSET+MAX_PLAYERS+1)
+#define DEAD_OFFSET ((uint8_t)HILL_OFFSET+MAX_PLAYERS+1)
+#define MOVE_OFFSET ((uint8_t)DEAD_OFFSET+MAX_PLAYERS+1)
+
+static inline int IS_LAND(uint8_t c){
+	return c==LAND;
+}
+static inline int IS_WATER(uint8_t c){
+	return c==WATER;
+}
+static inline int IS_MY_ANT(uint8_t c){
+	return (c == ANT_OFFSET);
+}
+static inline int IS_ANT(uint8_t c){
+	return (c >= ANT_OFFSET) && (c <= ANT_OFFSET+MAX_PLAYERS);
+}
+static inline int IS_HILL(uint8_t c){
+	return (c >= HILL_OFFSET) && (c <= HILL_OFFSET+MAX_PLAYERS);
+}
+static inline int IS_ENEMY_HILL(uint8_t c){
+	return (c >= HILL_OFFSET+1) && (c <= HILL_OFFSET+MAX_PLAYERS);
+}
+static inline int IS_DEAD(uint8_t c){
+	return (c >= DEAD_OFFSET) && (c <= DEAD_OFFSET+MAX_PLAYERS);
+}
+static inline int IS_MOVE(uint8_t c){
+	return (c >= MOVE_OFFSET) && (c <= MOVE_OFFSET+MAX_PLAYERS);
+}
+static inline int IS_UNSEEN(uint8_t c){
+	return c==UNSEEN;
+}
+static inline int IS_FOOD(uint8_t c){
+	return c==FOOD;
+}
+static inline int IS_OBJECT(uint8_t c){
+	return IS_FOOD(c)||IS_HILL(c)||IS_ANT(c)||IS_DEAD(c)||IS_MOVE(c);
+}
+static inline int IS_BACKGROUND(uint8_t c){
+	return (IS_UNSEEN(c) || IS_LAND(c) || IS_WATER(c));
+}
+
+
+void render_map(struct game_info *Info);
+float distance(int row1, int col1, int row2, int col2, struct game_info *Info);

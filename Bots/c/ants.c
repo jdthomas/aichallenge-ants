@@ -1,4 +1,5 @@
 #include "ants.h"
+float distance(int row1, int col1, int row2, int col2, struct game_info *Info);
 
 // initializes the game_info structure on the very first turn
 // function is not called after the game has started
@@ -80,17 +81,17 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     int i, j;
 
     for (i = 0; i < map_len; ++i) {
-        char current = game_info->map[i];
+        uint8_t current = game_info->map[i];
 
-        if (current == '?' || current == '.' || current == '%')
+        if (IS_BACKGROUND(current))
             continue;
-        else if (current == '*')
+        else if (IS_FOOD(current))
             ++food_count;
-        else if (current == 'a')
+        else if (IS_MY_ANT(current))
             ++my_count;
-        else if (current > 64 && current < 91)
+        else if (IS_DEAD(current))
             ++dead_count;
-        else
+        else if (IS_ANT(current))
             ++enemy_count;
     }
 
@@ -131,17 +132,17 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
 
     for (i = 0; i < game_info->rows; ++i) {
         for (j = 0; j < game_info->cols; ++j) {
-            char current = game_info->map[game_info->cols*i + j];
-            if (current == '?' || current == '.' || current == '%')
+            uint8_t current = game_info->map[game_info->cols*i + j];
+			if (IS_BACKGROUND(current))
                  continue;
 
-            if (current == '*') {
+            if (IS_FOOD(current)) {
                 --food_count;
 
                 game_state->food[food_count].row = i;
                 game_state->food[food_count].col = j;
             }
-            else if (current == 'a') {
+            else if (IS_MY_ANT(current)) {
                 --my_count;
 
                 int keep_id = -1;
@@ -164,14 +165,14 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
                 else
                     game_state->my_ants[my_count].id = keep_id;
             }
-            else if (current > 64 && current < 91) {
+            else if (IS_DEAD(current)) {
                 --dead_count;
 
                 game_state->dead_ants[dead_count].row = i;
                 game_state->dead_ants[dead_count].col = j;
                 game_state->dead_ants[dead_count].player = current;
             }
-            else {
+			else if (IS_ANT(current)) {
                 --enemy_count;
 
                 game_state->enemy_ants[enemy_count].row = i;
@@ -180,6 +181,18 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
             } 
         }
     }
+
+	int k;
+	for (i = 0; i < game_info->rows; ++i)
+		for (j = 0; j < game_info->cols; ++j) {
+			int offset = i*game_info->cols+j;
+			if( IS_UNSEEN(game_info->map[offset]) )
+				for(k=0;k<game_state->my_count;++k)
+					if( fabsf(distance(i, j, game_state->my_ants[k].row, game_state->my_ants[k].col, game_info)) <= sqrt(game_info->viewradius_sq) ) {
+						game_info->map[offset] = LAND;
+						break;
+					}
+		}
 
     if (my_old != 0)
         free(my_old);
@@ -196,20 +209,21 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
 //    *   = Food
 //    ?   = Unknown     (not used in latest engine version, unknowns are assumed to be land)
 
-
 void _init_map(char *data, struct game_info *game_info) {
 
     if (game_info->map == 0) {
         game_info->map = malloc(game_info->rows*game_info->cols);
-        memset(game_info->map, '.', game_info->rows*game_info->cols);
+        memset(game_info->map, UNSEEN, game_info->rows*game_info->cols);
     }
 
     int map_len = game_info->rows*game_info->cols;
     int i = 0;
 
+	// reset old knowledge
     for (; i < map_len; ++i)
-        if (game_info->map[i] != '%')
-            game_info->map[i] = '.';
+		if (IS_OBJECT(game_info->map[i]))
+			game_info->map[i] = LAND;
+	/* TODO if food/hill, only reset if visible .. otherwise assume it exists. */
 
     while (*data != 0) {
         char *tmp_data = data;
@@ -236,26 +250,60 @@ void _init_map(char *data, struct game_info *game_info) {
 
         if (arg > 2) {
             jump += strlen(tmp_data + jump) + 1;
-            var3 = *(tmp_data + jump);
+            //var3 = *(tmp_data + jump);
+			var3 = strtol(tmp_data+jump,NULL,10);
+			//assert(var3<=MAX_PLAYERS);
         }
 
         int offset = row*game_info->cols + col;
 
         switch (*data) {
             case 'w':
-                game_info->map[offset] = '%';
+                game_info->map[offset] = WATER;
                 break;
             case 'a':
-                game_info->map[offset] = var3 + 49;
+                game_info->map[offset] = var3 + ANT_OFFSET;
+                break;
+            case 'h':
+                game_info->map[offset] = var3 + HILL_OFFSET;
                 break;
             case 'd':
-                game_info->map[offset] = var3 + 27;
+                game_info->map[offset] = var3 + DEAD_OFFSET;
                 break;
             case 'f':
-                game_info->map[offset] = '*';
+                game_info->map[offset] = FOOD;
+                break;
+            case 'l':
+                game_info->map[offset] = LAND;
                 break;
         }
 
         data = tmp_ptr + 1;
     }
 }
+
+
+void render_map(struct game_info *Info) {
+	int i,j;
+	for(j=0;j<Info->cols+5;j++) {
+		fprintf(stderr,"=");
+	}
+	fprintf(stderr,"\n");
+	for(i=0;i<Info->rows;i++) {
+		fprintf(stderr,"%03d: ", i);
+		for(j=0;j<Info->cols;j++) {
+			char render = '_';
+				 if(IS_LAND(Info->map[i*Info->cols+j]))  render = '.';
+			else if(IS_WATER(Info->map[i*Info->cols+j])) render = '%';
+			else if(IS_UNSEEN(Info->map[i*Info->cols+j]))render = '?';
+			else if(IS_FOOD(Info->map[i*Info->cols+j]))  render = '*';
+			else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+Info->map[i*Info->cols+j]-ANT_OFFSET;
+			else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+Info->map[i*Info->cols+j]-HILL_OFFSET;
+			else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+Info->map[i*Info->cols+j]-DEAD_OFFSET;
+			fprintf(stderr,"%c", render);
+			//fprintf(stderr,"%3d ", Info->map[i*Info->cols+j]);
+		}
+		fprintf(stderr,"\n");
+	}
+}
+
