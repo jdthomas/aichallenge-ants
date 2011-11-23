@@ -3,7 +3,7 @@ CC=gcc
 CFLAGS=-O0 -g -c -g -Wall
 #LDFLAGS=-O2 -lm
 LDFLAGS=-O2 -lm -g
-SOURCES=MyBot.c YourCode.c ants.c
+SOURCES=MyBot.c ants.c
 OBJECTS=$(SOURCES:.c=.o)
 EXECUTABLE=MyBot
 
