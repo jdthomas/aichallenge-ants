@@ -39,7 +39,7 @@ void _init_ants(char *data, struct game_info *game_info) {
             case 'c':
                 game_info->cols = num_value;
                 break;
-                        
+
             case 'v':
                 game_info->viewradius_sq = num_value;
                 break;
@@ -47,7 +47,7 @@ void _init_ants(char *data, struct game_info *game_info) {
             case 'a':
                 game_info->attackradius_sq = num_value;
                 break;
-                    
+
             case 's':
                 if (*(data + 1) == 'p')
                     game_info->spawnradius_sq = num_value;
@@ -59,10 +59,10 @@ void _init_ants(char *data, struct game_info *game_info) {
         }
 
         data = value;
-        
+
         while (*++data != '\0');
         ++data;
-        
+
         if (strcmp(data, "ready") == 0)
             break;
     }
@@ -83,9 +83,10 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     for (i = 0; i < map_len; ++i) {
         uint8_t current = game_info->map[i];
 
-        if (IS_BACKGROUND(current))
-            continue;
-        else if (IS_FOOD(current))
+        //if (IS_BACKGROUND(current))
+        //    continue;
+        //else
+        if (IS_FOOD(current))
             ++food_count;
         else if (IS_MY_ANT(current))
             ++my_count;
@@ -94,6 +95,8 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
         else if (IS_ANT(current))
             ++enemy_count;
     }
+    fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d\n",
+            food_count, my_count, dead_count, enemy_count);
 
     struct my_ant *my_old = 0;
     int my_old_count = game_state->my_count;
@@ -156,7 +159,7 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
 
                 game_state->my_ants[my_count].row = i;
                 game_state->my_ants[my_count].col = j;
-                
+
                 if (keep_id == -1)
                     game_state->my_ants[my_count].id = ++game_state->my_ant_index;
                 else
@@ -175,43 +178,32 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
                 game_state->enemy_ants[enemy_count].row = i;
                 game_state->enemy_ants[enemy_count].col = j;
                 game_state->enemy_ants[enemy_count].player = current;
-            } 
+            }
         }
     }
-
-	int k;
-	for (i = 0; i < game_info->rows; ++i)
-		for (j = 0; j < game_info->cols; ++j) {
-			int offset = i*game_info->cols+j;
-			if( IS_UNSEEN(game_info->map[offset]) )
-				for(k=0;k<game_state->my_count;++k)
-                    if( edist_sq(i, j, game_state->my_ants[k].row,
-                                 game_state->my_ants[k].col, game_info) <=
-                        game_info->viewradius_sq ) {
-						game_info->map[offset] = LAND_OFFSET;
-						break;
-					}
-		}
 
     if (my_old != 0)
         free(my_old);
 }
 
-void _init_map(char *data, struct game_info *game_info) {
+struct knowledge_t {
+    int offset;
+    uint8_t value;
+};
+void _init_map(char *data, struct game_info *Info)
+{
+    static struct knowledge_t *new_knol = NULL;
+    int new_knol_count = 0;
+    if(!new_knol)
+        new_knol = malloc(sizeof(struct knowledge_t)*Info->rows*Info->cols);
 
-   if (game_info->map == 0) {
-        game_info->map = malloc(game_info->rows*game_info->cols);
-        memset(game_info->map, UNSEEN_OFFSET, game_info->rows*game_info->cols);
+   if (Info->map == 0) {
+        Info->map = malloc(Info->rows*Info->cols);
+        memset(Info->map, MAP_UNSEEN, Info->rows*Info->cols);
     }
 
-    int map_len = game_info->rows*game_info->cols;
+    int map_len = Info->rows*Info->cols;
     int i = 0;
-
-	// reset old knowledge
-    for (; i < map_len; ++i)
-		if (IS_OBJECT(game_info->map[i]))
-			game_info->map[i] = LAND_OFFSET;
-	/* TODO if food/hill, only reset if visible .. otherwise assume it exists. */
 
     while (*data != 0) {
         char *tmp_data = data;
@@ -242,30 +234,81 @@ void _init_map(char *data, struct game_info *game_info) {
 			//assert(var3<=MAX_PLAYERS);
         }
 
-        int offset = row*game_info->cols + col;
+        new_knol[new_knol_count].offset=row*Info->cols + col;
+        new_knol[new_knol_count].value=255;
 
         switch (*data) {
             case 'w':
-                game_info->map[offset] = WATER_OFFSET;
+                new_knol[new_knol_count].value = MAP_WATER;
                 break;
             case 'a':
-                game_info->map[offset] = var3 + ANT_OFFSET;
+                new_knol[new_knol_count].value = var3 | ANT_BIT;
                 break;
             case 'h':
-                game_info->map[offset] = var3 + HILL_OFFSET;
+                new_knol[new_knol_count].value = var3 | HILL_BIT;
                 break;
             case 'd':
-                game_info->map[offset] = var3 + DEAD_OFFSET;
+                new_knol[new_knol_count].value = var3 | DEAD_BIT;
                 break;
             case 'f':
-                game_info->map[offset] = FOOD_OFFSET;
+                new_knol[new_knol_count].value = MAP_FOOD;
                 break;
             case 'l':
-                game_info->map[offset] = LAND_OFFSET;
+                new_knol[new_knol_count].value = MAP_LAND;
                 break;
         }
+        if(new_knol[new_knol_count].value!=255)
+            new_knol_count++;
+        else fprintf(stderr,"PROBLEM, unrecognized item, %c\n", *data);
 
         data = tmp_ptr + 1;
+    }
+
+    /* Build new visibility table */
+    if(!Info->vis_tmp)
+        Info->vis_tmp = malloc(Info->rows*Info->cols*sizeof(int));
+    memset(Info->vis_tmp, 0, Info->rows*Info->cols*sizeof(int));
+    int rad = ceil(sqrt(Info->viewradius_sq)) + 2;
+    int x,y;
+    for(i=0;i<new_knol_count;i++)
+        if(IS_MY_ANT(new_knol[i].value)) {
+            int mr,mc;
+            AT_INDEX(mr,mc,new_knol[i].offset);
+            for(x=-rad;x<=rad;x++)
+                for(y=-rad;y<=rad;y++) {
+                    int r = WRAP_R(x+mr);
+                    int c = WRAP_C(y+mc);
+                    int offset = INDEX_AT(r,c);
+                    if(edist_sq(mr,mc,r,c,Info) < Info->viewradius_sq)
+                        Info->vis_tmp[offset]+=1;
+                }
+        }
+
+	// reset old knowledge -- my ants and visible stuff
+    for (i=0; i < map_len; ++i) {
+        // Clear all my ants,
+        if ( IS_MY_ANT(Info->map[i]) && IS_HILL(Info->map[i]) )
+            Info->map[i] &= ~ANT_BIT;
+        else if ( IS_MY_ANT(Info->map[i] ) )
+            Info->map[i] = MAP_LAND;
+        // Clear any move bit
+        if(Info->map[i]&MOVE_BIT) Info->map[i] &= ~MOVE_BIT;
+        // If it is visible and it is an objct, we will reset from the
+        // new_knol in a second. Or if it is visible and unseen, it can now be
+        // called land.
+        if ( Info->vis_tmp[i] &&
+             (IS_OBJECT(Info->map[i])||IS_UNSEEN(Info->map[i])) )
+            Info->map[i] = MAP_LAND;
+    }
+    // Add new knowledge
+    for(i=0;i<new_knol_count;i++) {
+        uint8_t cur=Info->map[new_knol[i].offset], new=new_knol[i].value;
+        // Ants and hills can share a square if they are same owner.
+        if( GET_OWNER(cur) == GET_OWNER(new) &&
+            ((IS_ANT(cur) && IS_HILL(new)) || (IS_ANT(new) && IS_HILL(cur))) )
+            Info->map[new_knol[i].offset]|=new_knol[i].value;
+        else
+            Info->map[new_knol[i].offset]=new_knol[i].value;
     }
 }
 
@@ -284,9 +327,9 @@ void render_map(struct game_info *Info) {
 			else if(IS_WATER(Info->map[i*Info->cols+j])) render = '%';
 			else if(IS_UNSEEN(Info->map[i*Info->cols+j]))render = '?';
 			else if(IS_FOOD(Info->map[i*Info->cols+j]))  render = '*';
-			else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+Info->map[i*Info->cols+j]-ANT_OFFSET;
-			else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+Info->map[i*Info->cols+j]-HILL_OFFSET;
-			else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+Info->map[i*Info->cols+j]-DEAD_OFFSET;
+			else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+GET_OWNER(Info->map[i*Info->cols+j]);
+			else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+GET_OWNER(Info->map[i*Info->cols+j]);
+			else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+GET_OWNER(Info->map[i*Info->cols+j]);
 			fprintf(stderr,"%c", render);
 			//fprintf(stderr,"%3d ", Info->map[i*Info->cols+j]);
 		}

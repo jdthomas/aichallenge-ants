@@ -21,12 +21,13 @@
 
 // TODO:
 // [ ] 1. defence ... if my_count > 8/hill: assign closest ant to hill as defence
-// [ ] 2. remember seen stuff until see the cell and it is gone
+// [X] 2. remember seen stuff until see the cell and it is gone
 // [ ] 3. slight preference for momentum?
 // [ ] 4. once dead, attack bases, ignore food.
 // [ ] 5. sort my ants by degrees of freedom and move most constrained ones first?
 // [X] 6. distance -> edist edist_sq functions, save from doing sqrt so much
-// [ ] 7. Move globals into game_info?
+// [/] 7. Move globals into game_info?
+// [ ] 8. random_walk_04p_01 bug, equal distance food confuses us
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -142,7 +143,7 @@ void move(int index, char dir, struct game_state* Game, struct game_info* Info)
             break;
     }
 
-	Info->map[Game->my_ants[index].row*Info->cols+Game->my_ants[index].col] = MOVE_OFFSET;
+	Info->map[Game->my_ants[index].row*Info->cols+Game->my_ants[index].col] |= MOVE_BIT;
 	//int r = Game->my_ants[index].row;
 	//int c = Game->my_ants[index].col;
     //LOG("O %i %i %c -> %i %i\n", r,c,dir,Game->my_ants[index].row, Game->my_ants[index].col);
@@ -219,6 +220,8 @@ int main(int argc, char *argv[])
     Game.dead_ants = 0;
 
 	freopen("/tmp/MyBot_c.log","wa+",stderr);
+
+    sanity_prints();
 
     while (42) {
         int initial_buffer = 100000;
@@ -303,12 +306,9 @@ void prepare_next_turn(struct game_info *Info)
                 Info->cost_map[i] = calloc(1,sizeof(double)*Info->rows*Info->cols);
         if(!Info->attacked_by)
             Info->attacked_by = malloc(Info->rows*Info->cols*sizeof(struct attackers_t));
-        if(!Info->vis_tmp)
-            Info->vis_tmp = malloc(Info->rows*Info->cols*sizeof(int));
         done_allocations=1;
     }
     memset(Info->attacked_by, 0, Info->rows*Info->cols*sizeof(struct attackers_t));
-    memset(Info->vis_tmp, 0, Info->rows*Info->cols*sizeof(int));
     memset(Info->cost_map[cm_BATTLE],0,Info->rows*Info->cols*sizeof(double));
     memset(Info->cost_map[cm_VIS],0,Info->rows*Info->cols*sizeof(double));
     need_reset = 0;
@@ -503,21 +503,6 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
         int rad = 2*ceil(fill_circle);
         int mc;
         rad+=1;
-        /* Tally visibility squares in vis_tmp */
-        for(mc=0;mc<Game->my_count;mc++) {
-            struct my_ant *m = &Game->my_ants[mc];
-            //int moffset = INDEX_AT(m->row,m->col);
-            for(i=-rad;i<=rad;i++) {
-                for(j=-rad;j<=rad;j++) {
-                    int r = WRAP_R(i+m->row);
-                    int c = WRAP_C(j+m->col);
-                    int offset = INDEX_AT(r,c);
-                    if(edist_sq(m->row,m->col,r,c,Info) < Info->viewradius_sq)
-                        Info->vis_tmp[offset]+=1;
-                }
-            }
-        }
-
         /* For each possible move mark if increases visibility */
         for(mc=0;mc<Game->my_count;mc++) {
             struct my_ant *m = &Game->my_ants[mc];
@@ -642,7 +627,8 @@ void render_plots(struct game_info *Info)
         fprintf(stderr,"\n");
         fprintf(stderr,"plt vis %03d: ", i);
         for(j=0;j<Info->cols;j++)
-            fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
+            //fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
+            fprintf(stderr,"%d.0 ", Info->vis_tmp[INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
     }
 #endif
@@ -694,7 +680,7 @@ void do_turn(struct game_state *Game, struct game_info *Info)
             int nl_r,nl_c;
             AT_INDEX(nl_r,nl_c,noffset);
             // Don't double move to a square, or to into water
-            if(IS_WATER(Info->map[noffset]) || Info->map[noffset] == MOVE_OFFSET) continue;
+            if(IS_WATER(Info->map[noffset]) || (Info->map[noffset] & MOVE_BIT)) continue;
             double score = calc_score(Info->cost_map,noffset);
             LOG("  ?move (%d,%d)->(%d,%d) %lf [",
                 m->row,m->col, nl_r,nl_c, score);
@@ -708,7 +694,7 @@ void do_turn(struct game_state *Game, struct game_info *Info)
         }
 
         if (dir == -1 || dir == 'X') {
-            Info->map[offset] = MOVE_OFFSET; // if we don't move this ant mark it as staying
+            Info->map[offset] |= MOVE_BIT; // if we don't move this ant mark it as staying
             LOG("Moved (%d,%d) STAY PUT %lf\n", m->row,m->col, max_score);
         }else {
             move(i, dir, Game, Info);

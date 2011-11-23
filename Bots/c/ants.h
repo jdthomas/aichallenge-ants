@@ -62,72 +62,82 @@ struct game_state {
 };
 
 #define MAX_PLAYERS   		  10
-#define UNSEEN_OFFSET ((uint8_t)0)
-#define WATER_OFFSET  ((uint8_t)UNSEEN_OFFSET+1)
-#define LAND_OFFSET   ((uint8_t)WATER_OFFSET+1)
-#define FOOD_OFFSET   ((uint8_t)LAND_OFFSET+1)
-#define HILL_OFFSET   ((uint8_t)FOOD_OFFSET+1)
-#define ANT_OFFSET    ((uint8_t)HILL_OFFSET+MAX_PLAYERS)
-#define DEAD_OFFSET   ((uint8_t)ANT_OFFSET+MAX_PLAYERS)
-#define MOVE_OFFSET   ((uint8_t)DEAD_OFFSET+MAX_PLAYERS)
+#define MAP_UNSEEN          ((uint8_t)0)
+#define MAP_WATER           ((uint8_t)1)
+#define MAP_LAND            ((uint8_t)2)
+#define MAP_FOOD            ((uint8_t)4)
+//#define BACKGROUND_BIT      ((uint8_t)0)
+#define ANT_BIT             ((uint8_t)0x10)
+#define HILL_BIT            ((uint8_t)0x20)
+#define DEAD_BIT            ((uint8_t)0x40)
+#define MOVE_BIT            ((uint8_t)0x80)
+#define BACKGROUND_MASK     ((uint8_t)ANT_BIT|HILL_BIT|DEAD_BIT)
 
+static inline int GET_OWNER(uint8_t c){
+    return (c&0xf);
+}
 static inline int IS_LAND(uint8_t c){
-	return c==LAND_OFFSET;
+	return (0==(c&BACKGROUND_MASK)) && (GET_OWNER(c)==MAP_LAND);
 }
 static inline int IS_WATER(uint8_t c){
-	return c==WATER_OFFSET;
-}
-static inline int IS_MY_ANT(uint8_t c){
-	return (c == ANT_OFFSET);
-}
-static inline int IS_ANT(uint8_t c){
-	return (c >= ANT_OFFSET) && (c < ANT_OFFSET+MAX_PLAYERS);
-}
-static inline int IS_HILL(uint8_t c){
-	return (c >= HILL_OFFSET) && (c < HILL_OFFSET+MAX_PLAYERS);
-}
-static inline int IS_ENEMY_HILL(uint8_t c){
-	return (c >= HILL_OFFSET+1) && (c < HILL_OFFSET+MAX_PLAYERS);
-}
-static inline int IS_MY_HILL(uint8_t c){
-	return (c == HILL_OFFSET);
-}
-static inline int IS_DEAD(uint8_t c){
-	return (c >= DEAD_OFFSET) && (c < DEAD_OFFSET+MAX_PLAYERS);
-}
-static inline int IS_MOVE(uint8_t c){
-	return (c == MOVE_OFFSET);
+	return (0==(c&BACKGROUND_MASK)) && (GET_OWNER(c)==MAP_WATER);
 }
 static inline int IS_UNSEEN(uint8_t c){
-	return c==UNSEEN_OFFSET;
+	return (0==(c&BACKGROUND_MASK)) && (GET_OWNER(c)==MAP_UNSEEN);
 }
 static inline int IS_FOOD(uint8_t c){
-	return c==FOOD_OFFSET;
+	return (0==(c&BACKGROUND_MASK)) && (GET_OWNER(c)==MAP_FOOD);
 }
+static inline int IS_MY_ANT(uint8_t c){
+	return  (c&ANT_BIT) && (GET_OWNER(c)==0);
+}
+static inline int IS_ANT(uint8_t c){
+	return !!(c&ANT_BIT);
+}
+static inline int IS_HILL(uint8_t c){
+	return !!(c&HILL_BIT);
+}
+static inline int IS_ENEMY_HILL(uint8_t c){
+	return (c&HILL_BIT) && (GET_OWNER(c)!=0);
+}
+static inline int IS_MY_HILL(uint8_t c){
+	return (c&HILL_BIT) && (GET_OWNER(c)==0);
+}
+static inline int IS_DEAD(uint8_t c){
+	return !!(c&DEAD_BIT);
+}
+static inline int IS_MOVE(uint8_t c){
+	return !!(c&MOVE_BIT);
+}
+
 static inline int IS_OBJECT(uint8_t c){
 	return IS_FOOD(c)||IS_HILL(c)||IS_ANT(c)||IS_DEAD(c)||IS_MOVE(c);
 }
 static inline int IS_BACKGROUND(uint8_t c){
 	return (IS_UNSEEN(c) || IS_LAND(c) || IS_WATER(c));
 }
-#if 0
-void sanity_prints()
+#if 1
+static inline void sanity_prints()
 {
     int i=0;
     for(i=0;i<256;i++)
     {
-        fprintf(stderr,"%s %s %s %s %s %s %s %s  %s %s\n",
-            IS_UNSEEN(i)?"u":" ",
-            IS_WATER(i)?"w":" ",
-            IS_LAND(i)?"l":" ",
-            IS_HILL(i)?"h":" ",
-            IS_FOOD(i)?"f":" ",
-            IS_ANT(i)?"a":" ",
-            IS_DEAD(i)?"d":" ",
-            IS_MOVE(i)?"m":" ",
-            IS_OBJECT(i)?"o":" ",
-            IS_BACKGROUND(i)?"b": ""
-            );
+        fprintf(stderr,"%d: %s %s %s %s %s %s %s %s %s %s  %s %s %d\n",
+                i,
+                IS_UNSEEN(i)?"u":" ",
+                IS_WATER(i)?"w":" ",
+                IS_LAND(i)?"l":" ",
+                IS_HILL(i)?"h":" ",
+                IS_MY_HILL(i)?"mh":"  ",
+                IS_FOOD(i)?"f":" ",
+                IS_ANT(i)?"a":" ",
+                IS_MY_ANT(i)?"ma":"  ",
+                IS_DEAD(i)?"d":" ",
+                IS_MOVE(i)?"mo":"  ",
+                IS_OBJECT(i)?"o":" ",
+                IS_BACKGROUND(i)?"b": "",
+                GET_OWNER(i)
+               );
     }
 }
 #endif
