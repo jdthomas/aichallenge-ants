@@ -4,7 +4,14 @@
 #include <math.h>
 #include <stdint.h>
 
-// this header is basically self-documenting
+enum {
+    cm_FOOD,
+    cm_HILL,
+    cm_UNSEEN,
+    cm_VIS,
+    cm_BATTLE,
+    cm_TOTAL
+};
 
 struct game_info {
 	int loadtime;
@@ -17,6 +24,10 @@ struct game_info {
 	int spawnradius_sq;
     int seed;
 	uint8_t *map;
+
+    double *cost_map[cm_TOTAL];
+    struct attackers_t *attacked_by;
+    int *vis_tmp;
 };
 
 struct basic_ant {
@@ -50,49 +61,48 @@ struct game_state {
     int my_ant_index;
 };
 
-#define MAX_PLAYERS   		  9
-#define UNSEEN      ((uint8_t)0)
-#define WATER       ((uint8_t)UNSEEN+MAX_PLAYERS+1)
-#define LAND        ((uint8_t)WATER+MAX_PLAYERS+1)
-#define HILL        ((uint8_t)LAND+MAX_PLAYERS+1)
-#define FOOD        ((uint8_t)HILL+MAX_PLAYERS+1)
-#define ANT_OFFSET  ((uint8_t)FOOD+MAX_PLAYERS+1)
-#define HILL_OFFSET ((uint8_t)ANT_OFFSET+MAX_PLAYERS+1)
-#define DEAD_OFFSET ((uint8_t)HILL_OFFSET+MAX_PLAYERS+1)
-#define MOVE_OFFSET ((uint8_t)DEAD_OFFSET+MAX_PLAYERS+1)
+#define MAX_PLAYERS   		  10
+#define UNSEEN_OFFSET ((uint8_t)0)
+#define WATER_OFFSET  ((uint8_t)UNSEEN_OFFSET+1)
+#define LAND_OFFSET   ((uint8_t)WATER_OFFSET+1)
+#define FOOD_OFFSET   ((uint8_t)LAND_OFFSET+1)
+#define HILL_OFFSET   ((uint8_t)FOOD_OFFSET+1)
+#define ANT_OFFSET    ((uint8_t)HILL_OFFSET+MAX_PLAYERS)
+#define DEAD_OFFSET   ((uint8_t)ANT_OFFSET+MAX_PLAYERS)
+#define MOVE_OFFSET   ((uint8_t)DEAD_OFFSET+MAX_PLAYERS)
 
 static inline int IS_LAND(uint8_t c){
-	return c==LAND;
+	return c==LAND_OFFSET;
 }
 static inline int IS_WATER(uint8_t c){
-	return c==WATER;
+	return c==WATER_OFFSET;
 }
 static inline int IS_MY_ANT(uint8_t c){
 	return (c == ANT_OFFSET);
 }
 static inline int IS_ANT(uint8_t c){
-	return (c >= ANT_OFFSET) && (c <= ANT_OFFSET+MAX_PLAYERS);
+	return (c >= ANT_OFFSET) && (c < ANT_OFFSET+MAX_PLAYERS);
 }
 static inline int IS_HILL(uint8_t c){
-	return (c >= HILL_OFFSET) && (c <= HILL_OFFSET+MAX_PLAYERS);
+	return (c >= HILL_OFFSET) && (c < HILL_OFFSET+MAX_PLAYERS);
 }
 static inline int IS_ENEMY_HILL(uint8_t c){
-	return (c >= HILL_OFFSET+1) && (c <= HILL_OFFSET+MAX_PLAYERS);
+	return (c >= HILL_OFFSET+1) && (c < HILL_OFFSET+MAX_PLAYERS);
 }
 static inline int IS_MY_HILL(uint8_t c){
 	return (c == HILL_OFFSET);
 }
 static inline int IS_DEAD(uint8_t c){
-	return (c >= DEAD_OFFSET) && (c <= DEAD_OFFSET+MAX_PLAYERS);
+	return (c >= DEAD_OFFSET) && (c < DEAD_OFFSET+MAX_PLAYERS);
 }
 static inline int IS_MOVE(uint8_t c){
-	return (c >= MOVE_OFFSET) && (c <= MOVE_OFFSET+MAX_PLAYERS);
+	return (c == MOVE_OFFSET);
 }
 static inline int IS_UNSEEN(uint8_t c){
-	return c==UNSEEN;
+	return c==UNSEEN_OFFSET;
 }
 static inline int IS_FOOD(uint8_t c){
-	return c==FOOD;
+	return c==FOOD_OFFSET;
 }
 static inline int IS_OBJECT(uint8_t c){
 	return IS_FOOD(c)||IS_HILL(c)||IS_ANT(c)||IS_DEAD(c)||IS_MOVE(c);
@@ -100,6 +110,28 @@ static inline int IS_OBJECT(uint8_t c){
 static inline int IS_BACKGROUND(uint8_t c){
 	return (IS_UNSEEN(c) || IS_LAND(c) || IS_WATER(c));
 }
+#if 0
+void sanity_prints()
+{
+    int i=0;
+    for(i=0;i<256;i++)
+    {
+        fprintf(stderr,"%s %s %s %s %s %s %s %s  %s %s\n",
+            IS_UNSEEN(i)?"u":" ",
+            IS_WATER(i)?"w":" ",
+            IS_LAND(i)?"l":" ",
+            IS_HILL(i)?"h":" ",
+            IS_FOOD(i)?"f":" ",
+            IS_ANT(i)?"a":" ",
+            IS_DEAD(i)?"d":" ",
+            IS_MOVE(i)?"m":" ",
+            IS_OBJECT(i)?"o":" ",
+            IS_BACKGROUND(i)?"b": ""
+            );
+    }
+}
+#endif
+
 
 #define INDEX_AT(r,c) (r*Info->cols+c)
 #define AT_INDEX(r,c,offset) ({c=offset%Info->cols; r=(offset-c)/Info->cols;})
@@ -114,9 +146,11 @@ static inline int IS_BACKGROUND(uint8_t c){
 
 
 void render_map(struct game_info *Info);
-float distance(int row1, int col1, int row2, int col2, struct game_info *Info);
 void do_turn(struct game_state *Game, struct game_info *Info);
 void move(int index, char dir, struct game_state* Game, struct game_info* Info);
 void _init_map(char *data, struct game_info *game_info);
 void _init_ants(char *data, struct game_info *game_info);
 void _init_game(struct game_info *game_info, struct game_state *game_state);
+int edist_sq(int row1, int col1, int row2, int col2, struct game_info *Info);
+double edist(int row1, int col1, int row2, int col2, struct game_info *Info);
+

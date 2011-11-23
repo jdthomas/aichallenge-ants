@@ -1,5 +1,4 @@
 #include "ants.h"
-float distance(int row1, int col1, int row2, int col2, struct game_info *Info);
 
 // initializes the game_info structure on the very first turn
 // function is not called after the game has started
@@ -184,8 +183,10 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
 			int offset = i*game_info->cols+j;
 			if( IS_UNSEEN(game_info->map[offset]) )
 				for(k=0;k<game_state->my_count;++k)
-					if( fabsf(distance(i, j, game_state->my_ants[k].row, game_state->my_ants[k].col, game_info)) <= sqrt(game_info->viewradius_sq) ) {
-						game_info->map[offset] = LAND;
+                    if( edist_sq(i, j, game_state->my_ants[k].row,
+                                 game_state->my_ants[k].col, game_info) <=
+                        game_info->viewradius_sq ) {
+						game_info->map[offset] = LAND_OFFSET;
 						break;
 					}
 		}
@@ -194,22 +195,11 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
         free(my_old);
 }
 
-// Updates the map.
-//
-//    %   = Walls       (the official spec calls this water,
-//                      in either case it's simply space that is occupied)
-//    .   = Land        (territory that you can walk on)
-//    a   = Your Ant
-// [b..z] = Enemy Ants
-// [A..Z] = Dead Ants   (disappear after one turn)
-//    *   = Food
-//    ?   = Unknown     (not used in latest engine version, unknowns are assumed to be land)
-
 void _init_map(char *data, struct game_info *game_info) {
 
-    if (game_info->map == 0) {
+   if (game_info->map == 0) {
         game_info->map = malloc(game_info->rows*game_info->cols);
-        memset(game_info->map, UNSEEN, game_info->rows*game_info->cols);
+        memset(game_info->map, UNSEEN_OFFSET, game_info->rows*game_info->cols);
     }
 
     int map_len = game_info->rows*game_info->cols;
@@ -218,7 +208,7 @@ void _init_map(char *data, struct game_info *game_info) {
 	// reset old knowledge
     for (; i < map_len; ++i)
 		if (IS_OBJECT(game_info->map[i]))
-			game_info->map[i] = LAND;
+			game_info->map[i] = LAND_OFFSET;
 	/* TODO if food/hill, only reset if visible .. otherwise assume it exists. */
 
     while (*data != 0) {
@@ -246,7 +236,6 @@ void _init_map(char *data, struct game_info *game_info) {
 
         if (arg > 2) {
             jump += strlen(tmp_data + jump) + 1;
-            //var3 = *(tmp_data + jump);
 			var3 = strtol(tmp_data+jump,NULL,10);
 			//assert(var3<=MAX_PLAYERS);
         }
@@ -255,7 +244,7 @@ void _init_map(char *data, struct game_info *game_info) {
 
         switch (*data) {
             case 'w':
-                game_info->map[offset] = WATER;
+                game_info->map[offset] = WATER_OFFSET;
                 break;
             case 'a':
                 game_info->map[offset] = var3 + ANT_OFFSET;
@@ -267,10 +256,10 @@ void _init_map(char *data, struct game_info *game_info) {
                 game_info->map[offset] = var3 + DEAD_OFFSET;
                 break;
             case 'f':
-                game_info->map[offset] = FOOD;
+                game_info->map[offset] = FOOD_OFFSET;
                 break;
             case 'l':
-                game_info->map[offset] = LAND;
+                game_info->map[offset] = LAND_OFFSET;
                 break;
         }
 
