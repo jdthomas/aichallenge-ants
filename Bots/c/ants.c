@@ -51,8 +51,10 @@ void _init_ants(char *data, struct game_info *game_info) {
             case 's':
                 if (*(data + 1) == 'p')
                     game_info->spawnradius_sq = num_value;
-                else
+                else {
                     game_info->seed = num_value;
+                    srand(game_info->seed);
+                }
                 break;
         }
 
