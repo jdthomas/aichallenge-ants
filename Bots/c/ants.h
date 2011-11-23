@@ -79,6 +79,9 @@ static inline int IS_HILL(uint8_t c){
 static inline int IS_ENEMY_HILL(uint8_t c){
 	return (c >= HILL_OFFSET+1) && (c <= HILL_OFFSET+MAX_PLAYERS);
 }
+static inline int IS_MY_HILL(uint8_t c){
+	return (c == HILL_OFFSET);
+}
 static inline int IS_DEAD(uint8_t c){
 	return (c >= DEAD_OFFSET) && (c <= DEAD_OFFSET+MAX_PLAYERS);
 }
@@ -98,6 +101,22 @@ static inline int IS_BACKGROUND(uint8_t c){
 	return (IS_UNSEEN(c) || IS_LAND(c) || IS_WATER(c));
 }
 
+#define INDEX_AT(r,c) (r*Info->cols+c)
+#define AT_INDEX(r,c,offset) ({c=offset%Info->cols; r=(offset-c)/Info->cols;})
+
+#define WRAP_R(r) ( (r+Info->rows)%Info->rows )
+#define WRAP_C(c) ( (c+Info->cols)%Info->cols )
+
+#define NORTH(r,c) INDEX_AT(WRAP_R(r-1),       c )
+#define  EAST(r,c) INDEX_AT(       r   ,WRAP_C(c+1))
+#define SOUTH(r,c) INDEX_AT(WRAP_R(r+1),       c )
+#define  WEST(r,c) INDEX_AT(       r   ,WRAP_C(c-1))
+
 
 void render_map(struct game_info *Info);
 float distance(int row1, int col1, int row2, int col2, struct game_info *Info);
+void do_turn(struct game_state *Game, struct game_info *Info);
+void move(int index, char dir, struct game_state* Game, struct game_info* Info);
+void _init_map(char *data, struct game_info *game_info);
+void _init_ants(char *data, struct game_info *game_info);
+void _init_game(struct game_info *game_info, struct game_state *game_state);
