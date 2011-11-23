@@ -361,7 +361,7 @@ inline double get_hill_val(int offset, struct game_info *Info)
         return 0.0;
     if ( IS_MY_ANT(Info->map[offset]) )
         return Info->cost_map[cm_HILL][offset]*0.5;  // I want to attack hills in numbers, diffuse partially through my ants
-    return Info->cost_map[cm_FOOD][offset];
+    return Info->cost_map[cm_HILL][offset];
 }
 
 inline double get_unseen_val(int offset, struct game_info *Info)
@@ -388,41 +388,51 @@ inline double get_battle_val(int offset, struct game_info *Info)
     return Info->cost_map[cm_BATTLE][offset];
 }
 
-inline void diffuse_step(int i, int j, struct game_info *Info)
+struct diffusion_params {
+    double dx,dy;
+    double dx2,dy2;
+    double dt;
+    double a;
+    int configured;
+};
+inline void diffuse_step(int i, int j, struct game_info *Info, struct diffusion_params *dp)
 {
-    /* some game specific constants for diffusion */
-    double dx = 1.0/Info->rows, dy = 1.0/Info->cols;
-    double dx2 = dx*dx, dy2 = dy*dy;
-    double a = 0.2;
-    double dt = dx2*dy2/( 2*a*(dx2+dy2) );
-
+    if(!dp->configured){
+        dp->dx = 1.0/Info->rows;
+        dp->dy = 1.0/Info->cols;
+        dp->dx2 = dp->dx*dp->dx;
+        dp->dy2 = dp->dy*dp->dy;
+        dp->a = 0.2;
+        dp->dt = dp->dx2*dp->dy2/( 2*dp->a*(dp->dx2+dp->dy2) );
+        dp->configured = 1;
+    }
     double uxx,uyy;
     int offset = INDEX_AT(i,j);
     int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
 
     /* FOOD */
-    uxx = ( get_food_val(_n,Info) - 2*get_food_val(offset,Info) + get_food_val(_s,Info) )/dx2;
-    uyy = ( get_food_val(_w,Info) - 2*get_food_val(offset,Info) + get_food_val(_e,Info) )/dy2;
-    Info->cost_map[cm_FOOD][offset] = get_food_val(offset,Info)+dt*a*(uxx+uyy);
+    uxx = ( get_food_val(_n,Info) - 2*get_food_val(offset,Info) + get_food_val(_s,Info) )/dp->dx2;
+    uyy = ( get_food_val(_w,Info) - 2*get_food_val(offset,Info) + get_food_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_FOOD][offset] = get_food_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
     /* HILL */
-    uxx = ( get_hill_val(_n,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_s,Info) )/dx2;
-    uyy = ( get_hill_val(_w,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_e,Info) )/dy2;
-    Info->cost_map[cm_HILL][offset] = get_hill_val(offset,Info)+dt*a*(uxx+uyy);
+    uxx = ( get_hill_val(_n,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_s,Info) )/dp->dx2;
+    uyy = ( get_hill_val(_w,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_HILL][offset] = get_hill_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
     /* UNSEEN */
-    uxx = ( get_unseen_val(_n,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_s,Info) )/dx2;
-    uyy = ( get_unseen_val(_w,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_e,Info) )/dy2;
-    Info->cost_map[cm_UNSEEN][offset] = get_unseen_val(offset,Info)+dt*a*(uxx+uyy);
+    uxx = ( get_unseen_val(_n,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_s,Info) )/dp->dx2;
+    uyy = ( get_unseen_val(_w,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_UNSEEN][offset] = get_unseen_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
     /* VISIBILITY */
 #ifdef DIFFUSE_VIS
-    uxx = ( get_visibility_val(_n,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_s,Info) )/dx2;
-    uyy = ( get_visibility_val(_w,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_e,Info) )/dy2;
-    Info->cost_map[cm_VIS][offset] = get_visibility_val(offset,Info)+dt*a*(uxx+uyy);
+    uxx = ( get_visibility_val(_n,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_s,Info) )/dp->dx2;
+    uyy = ( get_visibility_val(_w,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_VIS][offset] = get_visibility_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
 #endif
     /* BATTLE */
 #ifdef DIFFUSE_BATTLE
-    uxx = ( get_battle_val(_n,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_s,Info) )/dx2;
-    uyy = ( get_battle_val(_w,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_e,Info) )/dy2;
-    Info->cost_map[cm_BATTLE][offset] = get_battle_val(offset,Info)+dt*a*(uxx+uyy);
+    uxx = ( get_battle_val(_n,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_s,Info) )/dp->dx2;
+    uyy = ( get_battle_val(_w,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_BATTLE][offset] = get_battle_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
 #endif
 }
 
@@ -551,16 +561,17 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
     LOG("Vis calc: %lf\n",timevaldiff(&t_start,&t_end));
 
     int full_pass;
+    struct diffusion_params dp={0};
 	gettimeofday(&t_start,NULL);
     for(full_pass=0;full_pass<10;full_pass++) {
         /* Diffuse half pass 1 */
         for(i=0;i<Info->rows;i++)
             for(j=0;j<Info->cols;j++)
-                diffuse_step(i,j,Info);
+                diffuse_step(i,j,Info,&dp);
         /* Diffuse half pass 2 */
         for(i=Info->rows-1;i>=0;i--)
             for(j=Info->cols-1;j>=0;j--)
-                diffuse_step(i,j,Info);
+                diffuse_step(i,j,Info,&dp);
     }
 	gettimeofday(&t_end,NULL);
     LOG("Diffuse calc: %lf\n",timevaldiff(&t_start,&t_end));
