@@ -84,19 +84,18 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     for (i = 0; i < map_len; ++i) {
         uint8_t current = game_info->map[i];
 
-        //if (IS_BACKGROUND(current))
-        //    continue;
-        //else
         if (IS_FOOD(current))
             ++food_count;
-        else if (IS_MY_ANT(current))
-            ++my_count;
-        else if (IS_MY_HILL(current))
+        if (IS_MY_HILL(current))
             ++my_hill_count;
-        else if (IS_DEAD(current))
+        if (IS_DEAD(current))
             ++dead_count;
-        else if (IS_ANT(current))
-            ++enemy_count;
+        if(IS_ANT(current)) {
+            if (IS_MY_ANT(current))
+                ++my_count;
+            else
+                ++enemy_count;
+        }
     }
     fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d, my_hills: %d\n",
             food_count, my_count, dead_count, enemy_count, my_hill_count);

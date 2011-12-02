@@ -5,6 +5,7 @@
 //#ifdef TIMEOUT_PROTECTION
 //#define DIFFUSE_VIS
 #define ANTS_PER_DEFENDER 8
+#define DEFEND_HILL 1
 
 #include <setjmp.h>
 #include <signal.h>
@@ -567,7 +568,7 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
     LOG("Diffuse calc: %lf\n",timevaldiff(&t_start,&t_end));
     /* Restore all items to their non-defused maxes */
     int defenders = min(4,Game->my_hill_count?(Game->my_count / (ANTS_PER_DEFENDER*Game->my_hill_count)):0);
-	LOG("Defenders: %d\n", defenders);
+	LOG("Defenders: %d (%d/%d)\n", defenders, Game->my_count, ANTS_PER_DEFENDER * Game->my_hill_count);
     for(i=0;i<Info->rows;i++)
         for(j=0;j<Info->cols;j++) {
             int offset = INDEX_AT(i,j);
@@ -575,10 +576,22 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
                 Info->cost_map[cm_HILL][offset] = 1.0;
             if(IS_MY_HILL(Info->map[offset])) {
                 Info->cost_map[cm_HILL][offset] = -1.0;
-                //:TODO: mark up to these 4 defender squares as defence.
+#if DEFEND_HILL
+                int d;
+                const int dmap[4][2] = {{-1,-1},{-1,1},{1,1},{1,-1}};
+                // mark up to these 4 defender squares as defence.
                 //            [100 ___ 100]
                 //            [___  0  ___]
                 //            [100 ___ 100]
+                for(d=0;d<defenders;d++) {
+                    int r,c;
+                    AT_INDEX(r,c,offset);
+                    r = WRAP_R(r+dmap[d][0]);
+                    c = WRAP_C(r+dmap[d][1]);
+                    int doffset = INDEX_AT(r,c);
+                    Info->cost_map[cm_HILL][doffset] = 1.0; // :TODO: put these on separate layer?
+                }
+#endif
             }
         }
 }
