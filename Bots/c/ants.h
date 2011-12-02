@@ -54,6 +54,7 @@ struct game_state {
     struct basic_ant *dead_ants;
     
     int my_count;
+    int my_hill_count;
     int enemy_count;
     int food_count;
     int dead_count;

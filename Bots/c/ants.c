@@ -75,6 +75,7 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     int map_len = game_info->rows*game_info->cols;
 
     int my_count = 0;
+    int my_hill_count = 0;
     int enemy_count = 0;
     int food_count = 0;
     int dead_count = 0;
@@ -90,18 +91,21 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
             ++food_count;
         else if (IS_MY_ANT(current))
             ++my_count;
+        else if (IS_MY_HILL(current))
+            ++my_hill_count;
         else if (IS_DEAD(current))
             ++dead_count;
         else if (IS_ANT(current))
             ++enemy_count;
     }
-    fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d\n",
-            food_count, my_count, dead_count, enemy_count);
+    fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d, my_hills: %d\n",
+            food_count, my_count, dead_count, enemy_count, my_hill_count);
 
     struct my_ant *my_old = 0;
     int my_old_count = game_state->my_count;
 
     game_state->my_count = my_count;
+    game_state->my_hill_count = my_hill_count;
     game_state->enemy_count = enemy_count;
     game_state->food_count = food_count;
     game_state->dead_count = dead_count;

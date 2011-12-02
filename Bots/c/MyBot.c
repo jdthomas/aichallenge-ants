@@ -40,7 +40,7 @@ const double weights[cm_TOTAL] = {
     [cm_FOOD]   =  1.0,
     [cm_HILL]   =  4.0,
     [cm_UNSEEN] =  0.000125,
-    [cm_VIS]    =  0.000125,
+    [cm_VIS]    =  0.0000125,
     [cm_BATTLE] =  5.0,
     //[cm_RAND]   = 1.0e-10
 };
@@ -69,13 +69,18 @@ double timevaldiff(struct timeval *starttime, struct timeval *finishtime)
   return msec;
 }
 
-#if 1 // math.h has this
 // returns the absolute value of a number; used in distance function
 
 inline int abs(int x) {
     return (x >= 0)?x:-x;
 }
-#endif
+
+inline int min(int x,int y) {
+    return (x < y)?x:y;
+}
+inline int max(int x,int y) {
+    return (x > y)?x:y;
+}
 
 
 // returns the distance between two items on the grid accounting for map wrapping
@@ -561,7 +566,8 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
 	gettimeofday(&t_end,NULL);
     LOG("Diffuse calc: %lf\n",timevaldiff(&t_start,&t_end));
     /* Restore all items to their non-defused maxes */
-    //int defenders = max(4,(Info->my_count / (ANTS_PER_DEFENDER*Info->my_hill_count)));
+    int defenders = min(4,Game->my_hill_count?(Game->my_count / (ANTS_PER_DEFENDER*Game->my_hill_count)):0);
+	LOG("Defenders: %d\n", defenders);
     for(i=0;i<Info->rows;i++)
         for(j=0;j<Info->cols;j++) {
             int offset = INDEX_AT(i,j);
