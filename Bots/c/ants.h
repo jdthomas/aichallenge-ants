@@ -10,6 +10,7 @@ enum {
     cm_UNSEEN,
     cm_VIS,
     cm_BATTLE,
+    cm_KAMIKAZE,
     cm_TOTAL
 };
 
@@ -28,6 +29,8 @@ struct game_info {
     double *cost_map[cm_TOTAL];
     struct attackers_t *attacked_by;
     int *vis_tmp;
+
+    struct game_state * Game;
 };
 
 struct basic_ant {
@@ -49,6 +52,7 @@ struct food {
 
 struct game_state {
     struct my_ant *my_ants;
+    struct my_ant *my_hills;
     struct basic_ant *enemy_ants;
     struct food *food;
     struct basic_ant *dead_ants;
@@ -89,11 +93,14 @@ static inline int IS_UNSEEN(uint8_t c){
 static inline int IS_FOOD(uint8_t c){
 	return (0==(c&BACKGROUND_MASK)) && (GET_OWNER(c)==MAP_FOOD);
 }
+static inline int IS_ANT(uint8_t c){
+	return !!(c&ANT_BIT);
+}
 static inline int IS_MY_ANT(uint8_t c){
 	return  (c&ANT_BIT) && (GET_OWNER(c)==0);
 }
-static inline int IS_ANT(uint8_t c){
-	return !!(c&ANT_BIT);
+static inline int IS_ENEMY_ANT(uint8_t c){
+	return (c&ANT_BIT) && (GET_OWNER(c)!=0);
 }
 static inline int IS_HILL(uint8_t c){
 	return !!(c&HILL_BIT);

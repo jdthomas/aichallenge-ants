@@ -84,6 +84,8 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     for (i = 0; i < map_len; ++i) {
         uint8_t current = game_info->map[i];
 
+        if (IS_BACKGROUND(current))
+            continue;
         if (IS_FOOD(current))
             ++food_count;
         if (IS_MY_HILL(current))
@@ -112,6 +114,8 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     if (game_state->my_ants != 0)
         my_old = game_state->my_ants;
 
+    if (game_state->my_hills != 0)
+        free(game_state->my_hills);
     if (game_state->enemy_ants != 0)
         free(game_state->enemy_ants);
     if (game_state->food != 0)
@@ -120,6 +124,11 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
         free(game_state->dead_ants);
 
     game_state->my_ants = malloc(my_count*sizeof(struct my_ant));
+
+    if (my_hill_count> 0)
+        game_state->my_hills = malloc(my_hill_count*sizeof(struct my_ant));
+    else
+        game_state->my_hills = 0;
 
     if (enemy_count > 0)
         game_state->enemy_ants = malloc(enemy_count*sizeof(struct basic_ant));
@@ -145,45 +154,55 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
                 game_state->food[food_count].row = i;
                 game_state->food[food_count].col = j;
             }
-            else if (IS_MY_ANT(current)) {
-                --my_count;
-
-                int keep_id = -1;
-                int k = 0;
-
-                if (my_old != 0) {
-                    for (; k < my_old_count; ++k) {
-                        if (my_old[k].row == i && my_old[k].col == j) {
-                            keep_id = my_old[k].id;
-                            break;
-                        }
-                    }
-                }
-
-                game_state->my_ants[my_count].row = i;
-                game_state->my_ants[my_count].col = j;
-
-                if (keep_id == -1)
-                    game_state->my_ants[my_count].id = ++game_state->my_ant_index;
-                else
-                    game_state->my_ants[my_count].id = keep_id;
-            }
-            else if (IS_DEAD(current)) {
+            if (IS_DEAD(current)) {
                 --dead_count;
 
                 game_state->dead_ants[dead_count].row = i;
                 game_state->dead_ants[dead_count].col = j;
                 game_state->dead_ants[dead_count].player = current;
             }
-			else if (IS_ANT(current)) {
-                --enemy_count;
+            if (IS_MY_HILL(current)) {
+                --my_hill_count;
 
-                game_state->enemy_ants[enemy_count].row = i;
-                game_state->enemy_ants[enemy_count].col = j;
-                game_state->enemy_ants[enemy_count].player = current;
+                game_state->my_hills[my_hill_count].row = i;
+                game_state->my_hills[my_hill_count].col = j;
+            }
+            if (IS_ANT(current)) {
+                if (IS_MY_ANT(current)) {
+                    --my_count;
+
+                    int keep_id = -1;
+                    int k = 0;
+
+                    if (my_old != 0) {
+                        for (; k < my_old_count; ++k) {
+                            if (my_old[k].row == i && my_old[k].col == j) {
+                                keep_id = my_old[k].id;
+                                break;
+                            }
+                        }
+                    }
+
+                    game_state->my_ants[my_count].row = i;
+                    game_state->my_ants[my_count].col = j;
+
+                    if (keep_id == -1)
+                        game_state->my_ants[my_count].id = ++game_state->my_ant_index;
+                    else
+                        game_state->my_ants[my_count].id = keep_id;
+                } else {
+                    --enemy_count;
+
+                    game_state->enemy_ants[enemy_count].row = i;
+                    game_state->enemy_ants[enemy_count].col = j;
+                    game_state->enemy_ants[enemy_count].player = current;
+                }
             }
         }
     }
+
+    fprintf(stderr, "ZERO? food: %d, my: %d, dead: %d, enemy: %d, my_hills: %d\n",
+            food_count, my_count, dead_count, enemy_count, my_hill_count);
 
     if (my_old != 0)
         free(my_old);

@@ -1,11 +1,13 @@
 #include "ants.h"
 
-#define PLOT_DUMP 1
+#define PLOT_DUMP 0
 //#define DIFFUSE_BATTLE
-//#ifdef TIMEOUT_PROTECTION
+//#define TIMEOUT_PROTECTION
 //#define DIFFUSE_VIS
 #define ANTS_PER_DEFENDER 8
 #define DEFEND_HILL 1
+//#define NEAR_HOME_DIST_SQ 100
+#define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
 
 #include <setjmp.h>
 #include <signal.h>
@@ -21,14 +23,19 @@
 //#define LOG(format,args...)
 
 // TODO:
-// [ ] 1. defence ... if my_count > 8/hill: assign closest ant to hill as defence
+// [/] 1. defence
+// [ ] 1.1 if my_count > 8/hill: assign closest ant to hill as defence
+// [ ] 1.1 Kamikaze attack enemys 'near' home
 // [X] 2. remember seen stuff until see the cell and it is gone
 // [ ] 3. slight preference for momentum?
 // [ ] 4. once dead, attack bases, ignore food.
-// [ ] 5. sort my ants by degrees of freedom and move most constrained ones first?
+// [ ] 5. sort my ants by degrees of freedom and move most constrained ones
+//        first?
 // [X] 6. distance -> edist edist_sq functions, save from doing sqrt so much
 // [/] 7. Move globals into game_info?
 // [ ] 8. random_walk_04p_01 bug, equal distance food confuses us
+// [ ] 9. test timeout protection, possibly add two-staged timeout, so can move
+//        some ants in a turn based on stale info.
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -43,6 +50,7 @@ const double weights[cm_TOTAL] = {
     [cm_UNSEEN] =  0.000125,
     [cm_VIS]    =  0.0000125,
     [cm_BATTLE] =  5.0,
+    [cm_KAMIKAZE] =  5.0,
     //[cm_RAND]   = 1.0e-10
 };
 #if 0
@@ -219,6 +227,7 @@ int main(int argc, char *argv[])
     struct game_info Info={0};
     struct game_state Game={0};
     Info.map = 0;
+    Info.Game=&Game;
 
     Game.my_ants = 0;
     Game.enemy_ants = 0;
@@ -394,6 +403,28 @@ inline double get_battle_val(int offset, struct game_info *Info)
     return Info->cost_map[cm_BATTLE][offset];
 }
 
+inline int near_home(int offset, struct game_info *Info)
+{
+    int r,c;
+    AT_INDEX(r,c,offset);
+    int h;
+    for(h=0;h<Info->Game->my_hill_count;h++){
+        struct my_ant *e = &Info->Game->my_hills[h];
+        if( edist_sq(e->row,e->col,r,c,Info) < NEAR_HOME_DIST_SQ )
+            return 1;
+    }
+    return 0;
+}
+
+inline double get_kamikaze_val(int offset, struct game_info *Info)
+{
+    if( IS_WATER(Info->map[offset]) )
+        return 0.0;
+    if( IS_ENEMY_ANT(Info->map[offset]) && near_home(offset,Info) )
+        return 1.0;
+    return Info->cost_map[cm_KAMIKAZE][offset];
+}
+
 struct diffusion_params {
     double dx,dy;
     double dx2,dy2;
@@ -433,6 +464,12 @@ inline void diffuse_step(int i, int j, struct game_info *Info, struct diffusion_
     uxx = ( get_visibility_val(_n,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_s,Info) )/dp->dx2;
     uyy = ( get_visibility_val(_w,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_e,Info) )/dp->dy2;
     Info->cost_map[cm_VIS][offset] = get_visibility_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+#endif
+    /* KAMIKAZE */
+#if 1
+    uxx = ( get_kamikaze_val(_n,Info) - 2*get_kamikaze_val(offset,Info) + get_kamikaze_val(_s,Info) )/dp->dx2;
+    uyy = ( get_kamikaze_val(_w,Info) - 2*get_kamikaze_val(offset,Info) + get_kamikaze_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_KAMIKAZE][offset] = get_kamikaze_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
 #endif
     /* BATTLE */
 #ifdef DIFFUSE_BATTLE
@@ -587,7 +624,7 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
                     int r,c;
                     AT_INDEX(r,c,offset);
                     r = WRAP_R(r+dmap[d][0]);
-                    c = WRAP_C(r+dmap[d][1]);
+                    c = WRAP_C(c+dmap[d][1]);
                     int doffset = INDEX_AT(r,c);
                     Info->cost_map[cm_HILL][doffset] = 1.0; // :TODO: put these on separate layer?
                 }
@@ -646,8 +683,12 @@ void render_plots(struct game_info *Info)
         fprintf(stderr,"\n");
         fprintf(stderr,"plt vis %03d: ", i);
         for(j=0;j<Info->cols;j++)
-            //fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
-            fprintf(stderr,"%d.0 ", Info->vis_tmp[INDEX_AT(i,j)]);
+            fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
+            //fprintf(stderr,"%d.0 ", Info->vis_tmp[INDEX_AT(i,j)]);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"plt kamikaze %03d: ", i);
+        for(j=0;j<Info->cols;j++)
+            fprintf(stderr,"%lf ", Info->cost_map[cm_KAMIKAZE][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
     }
 #endif
