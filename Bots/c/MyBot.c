@@ -25,12 +25,18 @@
 // TODO:
 // [/] 1. defence
 // [ ] 1.1 if my_count > 8/hill: assign closest ant to hill as defence
-// [ ] 1.1 Kamikaze attack enemys 'near' home
+// [ ] 1.2 Kamikaze attack enemys 'near' home
+// [ ] 1.3 Move defend home markers to separate layer (same as current kamikaze?)
+// [ ] 1.4 ??? Instead of kamikaze layer, enemylocation * distance to hill ???
+// 				Simple as difusing enemys and diffusing my_hills and multiply in calc_score
 // [X] 2. remember seen stuff until see the cell and it is gone
 // [ ] 3. slight preference for momentum?
 // [ ] 4. once dead, attack bases, ignore food.
 // [ ] 5. sort my ants by degrees of freedom and move most constrained ones
-//        first?
+//        first? Or sort them by best moves? n**2? move people who "stayed put"
+//        last move first? Randomize the order I iterate atns to move them?
+//        The problem trying to solve is when two ants toggle places in two
+//        local minima.
 // [X] 6. distance -> edist edist_sq functions, save from doing sqrt so much
 // [/] 7. Move globals into game_info?
 // [ ] 8. random_walk_04p_01 bug, equal distance food confuses us
@@ -44,7 +50,7 @@ struct attackers_t {
 	int atkrs[MAX_ATTACKERS];
 };
 
-const double weights[cm_TOTAL] = {
+double weights[cm_TOTAL] = {
     [cm_FOOD]   =  1.0,
     [cm_HILL]   =  4.0,
     [cm_UNSEEN] =  0.000125,
@@ -234,9 +240,36 @@ int main(int argc, char *argv[])
     Game.food = 0;
     Game.dead_ants = 0;
 
-	freopen("/tmp/MyBot_c.log","wa+",stderr);
+	int i,debug_on=0;
+	for(i=0;i<argc;i++)
+	{
+		if( strcmp(argv[i],"--debug") ==0){
+			debug_on=1;
+		}else if( strcmp(argv[i],"--weights") == 0 ){
+			int j;
+			i++;
+			for(j=0;j<cm_TOTAL&&i+j<argc;j++)
+			{
+				char *e;
+				double w = strtod(argv[i+j],&e);
+				if( e == argv[i+j]) break; // not a double?
+				weights[j]=w;
+			}
+			i+=j;
+		}
+	}
 
-    sanity_prints();
+	if(debug_on)
+		freopen("/tmp/MyBot_c.log","wa+",stderr);
+	else 
+		freopen("/dev/null","wa+",stderr);
+
+
+	for(i=0;i<cm_TOTAL;i++)
+		fprintf(stderr,"weight[%d] = %lf\n", i, weights[i]);
+
+	// Some prints to check my new map data handling.
+    //sanity_prints();
 
     while (42) {
         int initial_buffer = 100000;
