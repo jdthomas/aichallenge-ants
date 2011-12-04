@@ -1,8 +1,8 @@
 #include "ants.h"
 
-#define PLOT_DUMP 0
+#define PLOT_DUMP 1
 //#define DIFFUSE_BATTLE
-//#define TIMEOUT_PROTECTION
+#define TIMEOUT_PROTECTION
 //#define DIFFUSE_VIS
 #define ANTS_PER_DEFENDER 8
 #define DEFEND_HILL 1
@@ -24,10 +24,10 @@
 
 // TODO:
 // [/] 1. defence
-// [ ] 1.1 if my_count > 8/hill: assign closest ant to hill as defence
-// [ ] 1.2 Kamikaze attack enemys 'near' home
-// [ ] 1.3 Move defend home markers to separate layer (same as current kamikaze?)
-// [ ] 1.4 ??? Instead of kamikaze layer, enemylocation * distance to hill ???
+// [x] 1.1 if my_count > 8/hill: assign closest ant to hill as defence
+// [/] 1.2 Kamikaze attack enemys 'near' home
+// [X] 1.3 Move defend home markers to separate layer (same as current defense?)
+// [ ] 1.4 ??? Instead of defense layer, enemylocation * distance to hill ???
 // 				Simple as difusing enemys and diffusing my_hills and multiply in calc_score
 // [X] 2. remember seen stuff until see the cell and it is gone
 // [ ] 3. slight preference for momentum?
@@ -50,14 +50,15 @@ struct attackers_t {
 	int atkrs[MAX_ATTACKERS];
 };
 
-double weights[cm_TOTAL] = {
+double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
+double weights[cm_TOTAL+1] = {
     [cm_FOOD]   =  1.0,
     [cm_HILL]   =  4.0,
     [cm_UNSEEN] =  0.000125,
     [cm_VIS]    =  0.0000125,
     [cm_BATTLE] =  5.0,
-    [cm_KAMIKAZE] =  5.0,
-    //[cm_RAND]   = 1.0e-10
+    [cm_DEFENSE] =  5.0,
+    [cm_RAND]   = 1.0e-10
 };
 #if 0
 const double weights[cm_TOTAL] = {
@@ -226,9 +227,16 @@ char *get_line(char *text)
 
 // main, communicates with tournament engine
 
+void quit_now(int sig) {
+    exit(0);
+}
+
 int main(int argc, char *argv[])
 {
     int action = -1;
+    struct sigaction act;
+    act.sa_handler = quit_now;
+    sigaction (SIGKILL, & act, 0);
 
     struct game_info Info={0};
     struct game_state Game={0};
@@ -248,7 +256,7 @@ int main(int argc, char *argv[])
 		}else if( strcmp(argv[i],"--weights") == 0 ){
 			int j;
 			i++;
-			for(j=0;j<cm_TOTAL&&i+j<argc;j++)
+			for(j=0;j<cm_TOTAL+1&&i+j<argc;j++)
 			{
 				char *e;
 				double w = strtod(argv[i+j],&e);
@@ -256,13 +264,28 @@ int main(int argc, char *argv[])
 				weights[j]=w;
 			}
 			i+=j;
+		}else if( strcmp(argv[i],"--diffuse") == 0 ){
+			int j;
+			i++;
+			for(j=0;j<cm_TOTAL&&i+j<argc;j++)
+			{
+				char *e;
+				double w = strtod(argv[i+j],&e);
+				if( e == argv[i+j]) break; // not a double?
+				alpha[j]=w;
+			}
+			i+=j;
 		}
 	}
 
+#define LOG_FILE_NAME "/tmp/MyBot_c.%d.log"
+    char * log_file_name = malloc(strlen(LOG_FILE_NAME)+20);
+    sprintf(log_file_name,LOG_FILE_NAME,getpid());
 	if(debug_on)
-		freopen("/tmp/MyBot_c.log","wa+",stderr);
+		freopen(log_file_name,"wa+",stderr);
 	else 
 		freopen("/dev/null","wa+",stderr);
+    free(log_file_name);
 
 
 	for(i=0;i<cm_TOTAL;i++)
@@ -275,6 +298,7 @@ int main(int argc, char *argv[])
         int initial_buffer = 100000;
 
         char *data = malloc(initial_buffer);
+        if(!data) exit(1);
         memset(data, 0, initial_buffer);
 
         *data = '\n';
@@ -288,7 +312,10 @@ int main(int argc, char *argv[])
 
             if (i > initial_buffer) {
                 initial_buffer *= 2;
+                int tmp_offset = ins_data - data;
                 data = realloc(data, initial_buffer);
+                // UGG,who wrote origional, realloc can move you
+                ins_data = data + tmp_offset;
                 memset(ins_data, 0, initial_buffer/2);
             }
 
@@ -449,31 +476,33 @@ inline int near_home(int offset, struct game_info *Info)
     return 0;
 }
 
-inline double get_kamikaze_val(int offset, struct game_info *Info)
+inline double get_defense_val(int offset, struct game_info *Info)
 {
     if( IS_WATER(Info->map[offset]) )
         return 0.0;
+    if( IS_MY_ANT(Info->map[offset]) )
+        return 0.0;
     if( IS_ENEMY_ANT(Info->map[offset]) && near_home(offset,Info) )
         return 1.0;
-    return Info->cost_map[cm_KAMIKAZE][offset];
+    return Info->cost_map[cm_DEFENSE][offset];
 }
 
 struct diffusion_params {
     double dx,dy;
     double dx2,dy2;
-    double dt;
-    double a;
+    double dt[cm_TOTAL];
     int configured;
 };
 inline void diffuse_step(int i, int j, struct game_info *Info, struct diffusion_params *dp)
 {
     if(!dp->configured){
+        int x;
         dp->dx = 1.0/Info->rows;
         dp->dy = 1.0/Info->cols;
         dp->dx2 = dp->dx*dp->dx;
         dp->dy2 = dp->dy*dp->dy;
-        dp->a = 0.2;
-        dp->dt = dp->dx2*dp->dy2/( 2*dp->a*(dp->dx2+dp->dy2) );
+        for(x=0;x<cm_TOTAL;x++)
+            dp->dt[x] = dp->dx2*dp->dy2/( 2*alpha[x]*(dp->dx2+dp->dy2) );
         dp->configured = 1;
     }
     double uxx,uyy;
@@ -483,32 +512,32 @@ inline void diffuse_step(int i, int j, struct game_info *Info, struct diffusion_
     /* FOOD */
     uxx = ( get_food_val(_n,Info) - 2*get_food_val(offset,Info) + get_food_val(_s,Info) )/dp->dx2;
     uyy = ( get_food_val(_w,Info) - 2*get_food_val(offset,Info) + get_food_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_FOOD][offset] = get_food_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+    Info->cost_map[cm_FOOD][offset] = get_food_val(offset,Info)+dp->dt[cm_FOOD]*alpha[cm_FOOD]*(uxx+uyy);
     /* HILL */
     uxx = ( get_hill_val(_n,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_s,Info) )/dp->dx2;
     uyy = ( get_hill_val(_w,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_HILL][offset] = get_hill_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+    Info->cost_map[cm_HILL][offset] = get_hill_val(offset,Info)+dp->dt[cm_HILL]*alpha[cm_HILL]*(uxx+uyy);
     /* UNSEEN */
     uxx = ( get_unseen_val(_n,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_s,Info) )/dp->dx2;
     uyy = ( get_unseen_val(_w,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_UNSEEN][offset] = get_unseen_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+    Info->cost_map[cm_UNSEEN][offset] = get_unseen_val(offset,Info)+dp->dt[cm_UNSEEN]*alpha[cm_UNSEEN]*(uxx+uyy);
     /* VISIBILITY */
 #ifdef DIFFUSE_VIS
     uxx = ( get_visibility_val(_n,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_s,Info) )/dp->dx2;
     uyy = ( get_visibility_val(_w,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_VIS][offset] = get_visibility_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+    Info->cost_map[cm_VIS][offset] = get_visibility_val(offset,Info)+dp->dt[cm_VIS]*alpha[cm_VIS]*(uxx+uyy);
 #endif
-    /* KAMIKAZE */
+    /* DEFENSE */
 #if 1
-    uxx = ( get_kamikaze_val(_n,Info) - 2*get_kamikaze_val(offset,Info) + get_kamikaze_val(_s,Info) )/dp->dx2;
-    uyy = ( get_kamikaze_val(_w,Info) - 2*get_kamikaze_val(offset,Info) + get_kamikaze_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_KAMIKAZE][offset] = get_kamikaze_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+    uxx = ( get_defense_val(_n,Info) - 2*get_defense_val(offset,Info) + get_defense_val(_s,Info) )/dp->dx2;
+    uyy = ( get_defense_val(_w,Info) - 2*get_defense_val(offset,Info) + get_defense_val(_e,Info) )/dp->dy2;
+    Info->cost_map[cm_DEFENSE][offset] = get_defense_val(offset,Info)+dp->dt[cm_DEFENSE]*alpha[cm_DEFENSE]*(uxx+uyy);
 #endif
     /* BATTLE */
 #ifdef DIFFUSE_BATTLE
     uxx = ( get_battle_val(_n,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_s,Info) )/dp->dx2;
     uyy = ( get_battle_val(_w,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_BATTLE][offset] = get_battle_val(offset,Info)+dp->dt*dp->a*(uxx+uyy);
+    Info->cost_map[cm_BATTLE][offset] = get_battle_val(offset,Info)+dp->dt[cm_BATTLE]*alpha[cm_BATTLE]*(uxx+uyy);
 #endif
 }
 
@@ -659,7 +688,7 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
                     r = WRAP_R(r+dmap[d][0]);
                     c = WRAP_C(c+dmap[d][1]);
                     int doffset = INDEX_AT(r,c);
-                    Info->cost_map[cm_HILL][doffset] = 1.0; // :TODO: put these on separate layer?
+                    Info->cost_map[cm_DEFENSE][doffset] = 1.0;
                 }
 #endif
             }
@@ -676,6 +705,8 @@ inline double calc_score(double ** cost_map, int offset)
         weight_total += weights[i];
         score += weights[i] * cost_map[i][offset];
     }
+    weight_total+=weights[cm_RAND];
+    score += weights[cm_RAND]*rand()/(double)RAND_MAX;
     return score / weight_total;
 }
 
@@ -683,9 +714,9 @@ void print_scores(double ** cost_map,int offset)
 {
     double weight_total=0.0;
     int i;
-    for(i=0;i<cm_TOTAL;i++)
+    for(i=0;i<cm_TOTAL+1;i++)
         weight_total += weights[i];
-    for(i=0;i<cm_TOTAL;i++)
+    for(i=0;i<cm_TOTAL+1;i++)
         LOG("%f,",weights[i] * cost_map[i][offset]/weight_total);
 }
 
@@ -719,9 +750,9 @@ void render_plots(struct game_info *Info)
             fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
             //fprintf(stderr,"%d.0 ", Info->vis_tmp[INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt kamikaze %03d: ", i);
+        fprintf(stderr,"plt defense %03d: ", i);
         for(j=0;j<Info->cols;j++)
-            fprintf(stderr,"%lf ", Info->cost_map[cm_KAMIKAZE][INDEX_AT(i,j)]);
+            fprintf(stderr,"%lf ", Info->cost_map[cm_DEFENSE][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
     }
 #endif

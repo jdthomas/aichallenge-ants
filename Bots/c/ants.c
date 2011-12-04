@@ -70,6 +70,16 @@ void _init_ants(char *data, struct game_info *game_info) {
 
 // updates game data with locations of ants and food
 // only the ids of your ants are preserved
+void shuffle_ants(int count, struct my_ant * my_ants) {
+    int i,j;
+    for(i=0;i<count;i++)
+    {
+        struct my_ant a = my_ants[i];
+        j = rand() % (count-i) + i;
+        my_ants[i] = my_ants[j];
+        my_ants[j] = a;
+    }
+}
 
 void _init_game(struct game_info *game_info, struct game_state *game_state) {
     int map_len = game_info->rows*game_info->cols;
@@ -200,6 +210,10 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
             }
         }
     }
+
+    // Randomize the order of ants in effort to improve move selection.
+    // Alternatives are sorting by something (degrees of freedom, ...)
+    shuffle_ants(game_state->my_count,game_state->my_ants);
 
     fprintf(stderr, "ZERO? food: %d, my: %d, dead: %d, enemy: %d, my_hills: %d\n",
             food_count, my_count, dead_count, enemy_count, my_hill_count);

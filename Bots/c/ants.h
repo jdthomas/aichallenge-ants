@@ -10,8 +10,9 @@ enum {
     cm_UNSEEN,
     cm_VIS,
     cm_BATTLE,
-    cm_KAMIKAZE,
-    cm_TOTAL
+    cm_DEFENSE,
+    cm_TOTAL,
+    cm_RAND=cm_TOTAL, // Only a weight, not a layer
 };
 
 struct game_info {
