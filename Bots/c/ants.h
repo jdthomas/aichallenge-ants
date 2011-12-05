@@ -13,6 +13,7 @@ enum {
     cm_DEFENSE,
     cm_TOTAL,
     cm_RAND=cm_TOTAL, // Only a weight, not a layer
+    cm_MOMEN, // Only a weight, not a layer
 };
 
 struct game_info {
@@ -30,6 +31,7 @@ struct game_info {
     double *cost_map[cm_TOTAL];
     struct attackers_t *attacked_by;
     int *vis_tmp;
+    char *momentum[2];
 
     struct game_state * Game;
 };

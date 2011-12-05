@@ -1,5 +1,6 @@
 #include "ants.h"
 
+#define USE_MOMENTUM 1
 #define PLOT_DUMP 1
 //#define DIFFUSE_BATTLE
 #define TIMEOUT_PROTECTION
@@ -50,16 +51,17 @@ struct attackers_t {
 	int atkr_count;
 	int atkrs[MAX_ATTACKERS];
 };
-
-double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
-double weights[cm_TOTAL+1] = {
+double alpha[cm_TOTAL] = {0.2, 0.5, 0.1, 0.1, 0.1, 0.1};
+//double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
+double weights[cm_TOTAL+2] = {
     [cm_FOOD]   =  1.0,
     [cm_HILL]   =  4.0,
     [cm_UNSEEN] =  0.000125,
     [cm_VIS]    =  0.0000125,
     [cm_BATTLE] =  5.0,
     [cm_DEFENSE] =  5.0,
-    [cm_RAND]   = 1.0e-10
+    [cm_RAND]   = 1.0e-10,
+    [cm_MOMEN]   = 0.000125,
 };
 #if 0
 const double weights[cm_TOTAL] = {
@@ -69,6 +71,7 @@ const double weights[cm_TOTAL] = {
     [cm_VIS]    =   0.0125,
     [cm_BATTLE] = 100.0,
     //[cm_RAND]   = 1.0e-10
+    //[cm_MOMEN]   = 0.000125,
 };
 #endif
 static int need_reset = 1;
@@ -166,10 +169,11 @@ void move(int index, char dir, struct game_state* Game, struct game_info* Info)
             break;
     }
 
-	Info->map[Game->my_ants[index].row*Info->cols+Game->my_ants[index].col] |= MOVE_BIT;
-	//int r = Game->my_ants[index].row;
-	//int c = Game->my_ants[index].col;
-    //LOG("O %i %i %c -> %i %i\n", r,c,dir,Game->my_ants[index].row, Game->my_ants[index].col);
+    int offset = Game->my_ants[index].row*Info->cols+Game->my_ants[index].col;
+	Info->map[offset] |= MOVE_BIT;
+#if USE_MOMENTUM
+    Info->momentum[1][offset] = dir;
+#endif
 }
 
 int get_neighbor(struct game_info *Info, int n, int cur_loc, int *new_loc, char *dir)
@@ -384,11 +388,22 @@ void prepare_next_turn(struct game_info *Info)
                 Info->cost_map[i] = calloc(1,sizeof(double)*Info->rows*Info->cols);
         if(!Info->attacked_by)
             Info->attacked_by = malloc(Info->rows*Info->cols*sizeof(struct attackers_t));
+#if USE_MOMENTUM
+        if(!Info->momentum[0])
+            Info->momentum[0] = calloc(1,Info->rows*Info->cols);
+        if(!Info->momentum[1])
+            Info->momentum[1] = calloc(1,Info->rows*Info->cols);
+#endif
         done_allocations=1;
     }
     memset(Info->attacked_by, 0, Info->rows*Info->cols*sizeof(struct attackers_t));
     memset(Info->cost_map[cm_BATTLE],0,Info->rows*Info->cols*sizeof(double));
     memset(Info->cost_map[cm_VIS],0,Info->rows*Info->cols*sizeof(double));
+#if USE_MOMENTUM
+#define SWAP(A,B) ({typeof(A) tmp=A;A=B;B=tmp;})
+    SWAP(Info->momentum[0],Info->momentum[1]);
+    memset(Info->momentum[1],0,Info->rows*Info->cols);
+#endif
     need_reset = 0;
 }
 
@@ -435,7 +450,8 @@ inline double get_hill_val(int offset, struct game_info *Info)
 {
     if( IS_ENEMY_HILL(Info->map[offset]) )
         return 1.0;
-    if( IS_WATER(Info->map[offset]) )
+    if( IS_WATER(Info->map[offset]) || 
+        IS_MY_HILL(Info->map[offset]) ) // HACK: check my hill here to clear the -1 set below
         return 0.0;
     if ( IS_MY_ANT(Info->map[offset]) )
         return Info->cost_map[cm_HILL][offset]*0.5;  // I want to attack hills in numbers, diffuse partially through my ants
@@ -698,7 +714,30 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
         }
 }
 
-inline double calc_score(double ** cost_map, int offset)
+#if USE_MOMENTUM
+inline char backwards(char d){
+        switch(d){
+            case 'n': return 's';
+            case 'e': return 'w';
+            case 's': return 'n';
+            case 'w': return 'e';
+            case 'N': return 'S';
+            case 'E': return 'W';
+            case 'S': return 'N';
+            case 'W': return 'E';
+            //case 'X': return 'X';
+        }
+        return d;
+}
+inline double calc_momentum(struct game_info *Info,int offset, char d) {
+    char od = Info->momentum[0][offset];
+    if(od==d) return 1.0;
+    if(od==backwards(d)) return 0.0;
+    return 0.5;
+}
+#endif
+
+inline double calc_score(struct game_info *Info, int offset, char d)
 {
     double score = 0.0;
     double weight_total=0.0;
@@ -706,21 +745,34 @@ inline double calc_score(double ** cost_map, int offset)
     for(i=0;i<cm_TOTAL;i++) {
         //if(im_dead() && i==cm_FOOD) continue;
         weight_total += weights[i];
-        score += weights[i] * cost_map[i][offset];
+        score += weights[i] * Info->cost_map[i][offset];
     }
     weight_total+=weights[cm_RAND];
     score += weights[cm_RAND]*rand()/(double)RAND_MAX;
+
+#if USE_MOMENTUM
+    weight_total+=weights[cm_MOMEN];
+    score += weights[cm_MOMEN]*calc_momentum(Info,offset,d);
+#endif
+
     return score / weight_total;
 }
 
-void print_scores(double ** cost_map,int offset)
+void print_scores(struct game_info *Info,int offset,char d)
 {
     double weight_total=0.0;
     int i;
-    for(i=0;i<cm_TOTAL+1;i++)
+    for(i=0;i<cm_TOTAL;i++)
         weight_total += weights[i];
-    for(i=0;i<cm_TOTAL+1;i++)
-        LOG("%f,",weights[i] * cost_map[i][offset]/weight_total);
+    weight_total+=weights[cm_RAND];
+#if USE_MOMENTUM
+    weight_total+=weights[cm_MOMEN];
+#endif
+    for(i=0;i<cm_TOTAL;i++)
+        LOG("%f,",weights[i] * Info->cost_map[i][offset]/weight_total);
+#if USE_MOMENTUM
+    LOG("%f",weights[cm_MOMEN]*calc_momentum(Info,offset,d)/weight_total);
+#endif
 }
 
 void render_plots(struct game_info *Info)
@@ -743,7 +795,7 @@ void render_plots(struct game_info *Info)
         fprintf(stderr,"\n");
         fprintf(stderr,"plt scr %03d: ", i);
         for(j=0;j<Info->cols;j++)
-            fprintf(stderr,"%lf ", calc_score(Info->cost_map,INDEX_AT(i,j)));
+            fprintf(stderr,"%lf ", calc_score(Info,INDEX_AT(i,j),'X'));
         fprintf(stderr,"\n");
         fprintf(stderr,"plt bat %03d: ", i);
         for(j=0;j<Info->cols;j++)
@@ -809,10 +861,10 @@ void do_turn(struct game_state *Game, struct game_info *Info)
             AT_INDEX(nl_r,nl_c,noffset);
             // Don't double move to a square, or to into water
             if(IS_WATER(Info->map[noffset]) || (Info->map[noffset] & MOVE_BIT)) continue;
-            double score = calc_score(Info->cost_map,noffset);
+            double score = calc_score(Info,noffset,d);
             LOG("  ?move (%d,%d)->(%d,%d) %lf [",
                 m->row,m->col, nl_r,nl_c, score);
-            print_scores(Info->cost_map,noffset);
+            print_scores(Info,noffset,d);
             LOG("] %c\n", d );
 
             if(score>max_score) {
