@@ -282,10 +282,11 @@ int main(int argc, char *argv[])
 #define LOG_FILE_NAME "/tmp/MyBot_c.%d.log"
     char * log_file_name = malloc(strlen(LOG_FILE_NAME)+20);
     sprintf(log_file_name,LOG_FILE_NAME,getpid());
+    FILE *f_tmp;
 	if(debug_on)
-		freopen(log_file_name,"wa+",stderr);
+		f_tmp = freopen(log_file_name,"wa+",stderr);
 	else
-		freopen("/dev/null","wa+",stderr);
+		f_tmp = freopen("/dev/null","wa+",stderr);
     free(log_file_name);
 
 
