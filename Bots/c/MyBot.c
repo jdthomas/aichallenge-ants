@@ -42,6 +42,7 @@
 // [ ] 8. random_walk_04p_01 bug, equal distance food confuses us
 // [ ] 9. test timeout protection, possibly add two-staged timeout, so can move
 //        some ants in a turn based on stale info.
+// [ ] 10. Recently been layer? "for c in cells: if MyANT(c): c-=X; elif c<0: c+=1" diffused?
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -283,7 +284,7 @@ int main(int argc, char *argv[])
     sprintf(log_file_name,LOG_FILE_NAME,getpid());
 	if(debug_on)
 		freopen(log_file_name,"wa+",stderr);
-	else 
+	else
 		freopen("/dev/null","wa+",stderr);
     free(log_file_name);
 
@@ -294,7 +295,7 @@ int main(int argc, char *argv[])
 	// Some prints to check my new map data handling.
     //sanity_prints();
 
-    while (42) {
+    while (1) { // While game going on ...
         int initial_buffer = 100000;
 
         char *data = malloc(initial_buffer);
@@ -307,16 +308,16 @@ int main(int argc, char *argv[])
 
         int i = 0;
 
-        while (1 > 0) {
+        while (1) { // While reading a command
             ++i;
 
             if (i > initial_buffer) {
                 initial_buffer *= 2;
                 int tmp_offset = ins_data - data;
                 data = realloc(data, initial_buffer);
-                // UGG,who wrote origional, realloc can move you
+                // UGG, who wrote origional, realloc can move you
                 ins_data = data + tmp_offset;
-                memset(ins_data, 0, initial_buffer/2);
+                memset(data+initial_buffer/2, 0, initial_buffer/2);
             }
 
             *ins_data = getchar();
