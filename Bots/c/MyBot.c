@@ -73,6 +73,7 @@ const double weights[cm_TOTAL] = {
 #endif
 static int need_reset = 1;
 static jmp_buf buf;
+static int debug_on=0;
 
 void timeout(int sig) {
     siglongjmp(buf, 1);
@@ -249,7 +250,7 @@ int main(int argc, char *argv[])
     Game.food = 0;
     Game.dead_ants = 0;
 
-	int i,debug_on=0;
+	int i;
 	for(i=0;i<argc;i++)
 	{
 		if( strcmp(argv[i],"--debug") ==0){
@@ -724,6 +725,7 @@ void print_scores(double ** cost_map,int offset)
 
 void render_plots(struct game_info *Info)
 {
+    if(!debug_on) return;
 #if PLOT_DUMP
     int i,j;
     for(i=0;i<Info->rows;i++) {
