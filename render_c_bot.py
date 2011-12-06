@@ -3,14 +3,23 @@
 import sys
 from math import log
 from pprint import pprint
-import scipy as sp
 import matplotlib
-#matplotlib.use('GTKAgg') # Change this as desired.
-#import gobject
-#from pylab import *
+got_animation = False
+try:
+    import matplotlib.animation as animation
+    got_animation = True
+except ImportError:
+    pass
+if not got_animation:
+    matplotlib.use('GTKAgg') # Change this as desired.
+    import gobject
 from matplotlib.pylab import *
-import matplotlib.animation as animation
+from pylab import *
+import scipy as sp
 
+print "Got matplotlib's animation?", got_animation
+
+show_colorbar = False
 vmin=9999
 vmax=0
 data = {}
@@ -35,9 +44,8 @@ def load_data(log_file):
             i = d[1]
             #"plt name xxx: ..."
             a = map(float,d[3::])
-        #if i not in ['bat','scr']: continue ## HACK
-        #if i not in ['defense','fod','hil','scr']: continue ## HACK
-        if i not in ['defense', 'fod', 'hil', 'uns', 'scr', 'bat']: continue
+        #if i not in ['score', 'defense', 'food', 'hill', 'unseen', 'battle', 'vis', 'bfs']: continue
+        #if i not in ['bfs', 'score']: continue
         if i != -1:
             if i not in tmp_data: tmp_data[i] = []
             #a = map(lambda x: log(x+0.1), a)
@@ -98,12 +106,16 @@ def do_rendering():
         i.set_norm(norm)
         if render_num>0: images[0].callbacksSM.connect('changed', ImageFollower(i))
         images.append(i)
-        #fig.colorbar( i, orientation='horizantal' )
+        if(show_colorbar): fig.colorbar( i, orientation='horizantal' )
 
     manager = get_current_fig_manager()
     # once idle, call updatefig until it returns false.
     #gobject.idle_add(updatefig)
-    ani = animation.FuncAnimation(fig, updatefig)
+    if got_animation:
+        ani = animation.FuncAnimation(fig, updatefig)
+    else:
+        # once idle, call updatefig until it returns false.
+        gobject.idle_add(updatefig)
     show()
     print '(cd /tmp/HeatMap/ ;ffmpeg -qscale 5 -r 3 -b 9600 -i diffusion_%04d.png movie.mp4)'
 
