@@ -1,3 +1,6 @@
 [submodule "_official"]
 	path = _official
 	url = git://github.com/aichallenge/aichallenge.git
+[submodule "ants-tcp"]
+	path = ants-tcp
+	url = git://github.com/fluxid/ants-tcp.git
