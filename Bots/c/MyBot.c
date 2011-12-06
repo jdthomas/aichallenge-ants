@@ -1,5 +1,7 @@
 #include "ants.h"
 
+#define BFS_ENABLE 1
+
 #define USE_MOMENTUM 1
 #define PLOT_DUMP 1
 //#define DIFFUSE_BATTLE
@@ -10,6 +12,7 @@
 //#define NEAR_HOME_DIST_SQ 100
 #define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
 
+#include <assert.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdint.h>
@@ -51,17 +54,30 @@ struct attackers_t {
 	int atkr_count;
 	int atkrs[MAX_ATTACKERS];
 };
-double alpha[cm_TOTAL] = {0.2, 0.5, 0.1, 0.1, 0.1, 0.1};
+double alpha[cm_TOTAL] = {0.8, 0.8, 0.8, 0.8, 0.8, 0.8};
 //double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
 double weights[cm_TOTAL+2] = {
+#if 1
     [cm_FOOD]   =  1.0,
     [cm_HILL]   =  4.0,
     [cm_UNSEEN] =  0.000125,
     [cm_VIS]    =  0.0000125,
     [cm_BATTLE] =  5.0,
+    [cm_BFS]    =  0.0,
     [cm_DEFENSE] =  5.0,
     [cm_RAND]   = 1.0e-10,
     [cm_MOMEN]   = 0.000125,
+#else
+    [cm_FOOD]   =  1.0,
+    [cm_HILL]   =  3.0,
+    [cm_UNSEEN] =  0.25,
+    [cm_VIS]    =  0.0000125,
+    [cm_BATTLE] =  2.0,
+    [cm_BFS]    =  0.0,
+    [cm_DEFENSE]=  2.0,
+    [cm_RAND]   =  0.00125,
+    [cm_MOMEN]  =  0.000125,
+#endif
 };
 #if 0
 const double weights[cm_TOTAL] = {
@@ -77,6 +93,119 @@ const double weights[cm_TOTAL] = {
 static int need_reset = 1;
 static jmp_buf buf;
 static int debug_on=0;
+
+
+/******** BEGAIN BFS DATA STRUCTS ********/
+struct q_data_t {
+    int offset;
+    int distance;
+};
+struct dequeue_t {
+    struct q_data_t * data;
+    int push;
+    int pop;
+    int len;
+};
+#if 0
+void queue_dump_r(struct dequeue_t *Q){
+	struct dequeue_node_t *n = Q->tail;
+	fprintf(stderr,"rrrrrrrrrrrrrrrv\n");
+	while(n){
+		struct scored_loc_t *l = (struct scored_loc_t*) n->data;
+		fprintf(stderr,"walkr: %p - (%d,%d,%d)\n", l, l->loc.row, l->loc.col, l->score);
+		n = n->prev;
+	}
+	fprintf(stderr,"rrrrrrrrrrrrrrr^\n");
+}
+void queue_dump_f(struct dequeue_t *Q){
+	struct dequeue_node_t *n = Q->head;
+	fprintf(stderr,"fffffffffffffffv\n");
+	while(n){
+		struct scored_loc_t *l = (struct scored_loc_t*) n->data;
+		fprintf(stderr,"walkf: %p - (%d,%d,%d)\n", l, l->loc.row, l->loc.col, l->score);
+		n = n->next;
+	}
+	fprintf(stderr,"fffffffffffffff^\n");
+}
+#endif
+
+void queue_reinit(struct dequeue_t *Q)
+{
+    Q->push = Q->pop = 0;
+}
+void queue_init(struct dequeue_t *Q, int row, int col)
+{
+    Q->len = row*col;
+    Q->data = malloc(Q->len*sizeof(struct q_data_t));
+    queue_reinit(Q);
+}
+void queue_push(struct dequeue_t* Q, struct q_data_t *item)
+{
+    Q->data[Q->push] = *item;
+    Q->push = (Q->push+1)%Q->len;
+}
+void queue_pop(struct dequeue_t* Q, struct q_data_t *item)
+{
+    *item = Q->data[Q->pop];
+    Q->pop = (Q->pop+1)%Q->len;
+}
+int queue_is_empty(struct dequeue_t *Q)
+{
+	return Q->push == Q->pop;
+}
+struct set_t {
+    uint32_t *bitmask;
+    int size_in_blocks;
+    int row,col;
+};
+inline void SET_BIT(uint32_t *buf, int bit)
+{
+    *buf |= 1<<bit;
+}
+inline int GET_BIT(uint32_t *buf, int bit)
+{
+    return !!(*buf & (1<<bit));
+}
+#define SET_BLOCK_SIZE_BY (sizeof(uint32_t))
+#define SET_BLOCK_SIZE_BI (SET_BLOCK_SIZE_BY*8)
+void set_reinit(struct set_t * s)
+{
+    memset(s->bitmask,0,SET_BLOCK_SIZE_BY*s->size_in_blocks);
+}
+void set_init(struct set_t * s, int row, int col)
+{
+    s->row=row;
+    s->col=col;
+	int max_item_index = row*col;
+    s->size_in_blocks = (max_item_index+SET_BLOCK_SIZE_BI-1)/SET_BLOCK_SIZE_BI;
+    s->bitmask = malloc(SET_BLOCK_SIZE_BY*s->size_in_blocks);
+    set_reinit(s);
+	//fprintf(stderr,"Created set, max size: %d %ld %d\n", s->size_in_blocks, SET_BLOCK_SIZE_BI, max_item_index);
+}
+void set_destroy(struct set_t * s)
+{
+    free(s->bitmask);
+}
+void set_insert(struct set_t *s, int offset)
+{
+    int ui_num = offset/SET_BLOCK_SIZE_BI;
+    int bit_num = offset%SET_BLOCK_SIZE_BI;
+	//fprintf(stderr,"Set insert at %d,[%d][%d]\n", offset,ui_num,bit_num);
+    SET_BIT(&s->bitmask[ui_num],bit_num);
+}
+int set_is_member(struct set_t * s, int offset)
+{
+    int ui_num = offset/SET_BLOCK_SIZE_BI;
+    int bit_num = offset%SET_BLOCK_SIZE_BI;
+	//fprintf(stderr,"Set check at %d,[%d][%d]\n", offset,ui_num,bit_num);
+    return GET_BIT(&s->bitmask[ui_num],bit_num);
+}
+/******** END BFS DATA STRUCTS ********/
+
+static struct set_t bfs_seen; // Alloc once, zero out each turn
+static struct dequeue_t bfs_queue;// Alloc once to (sizeof(q_data_t)*Info->rows*Info->cols), reuse
+
+
 
 void timeout(int sig) {
     siglongjmp(buf, 1);
@@ -241,6 +370,7 @@ int main(int argc, char *argv[])
 {
     int action = -1;
     struct sigaction act;
+    memset(&act,0,sizeof(act));
     act.sa_handler = quit_now;
     sigaction (SIGKILL, & act, 0);
 
@@ -380,22 +510,35 @@ int main(int argc, char *argv[])
 void prepare_next_turn(struct game_info *Info)
 {
     static int done_allocations=0;
+    static int r,c;
     int i;
     if(!need_reset) return;
     if(!done_allocations) {
+        r=Info->rows,c=Info->cols;
         for(i=0;i<cm_TOTAL;i++)
-            if(!Info->cost_map[i])
+            if(!Info->cost_map[i]){
                 Info->cost_map[i] = calloc(1,sizeof(double)*Info->rows*Info->cols);
+                assert(Info->cost_map[i]);
+            }
         if(!Info->attacked_by)
             Info->attacked_by = malloc(Info->rows*Info->cols*sizeof(struct attackers_t));
+        assert(Info->attacked_by);
 #if USE_MOMENTUM
         if(!Info->momentum[0])
             Info->momentum[0] = calloc(1,Info->rows*Info->cols);
         if(!Info->momentum[1])
             Info->momentum[1] = calloc(1,Info->rows*Info->cols);
+        assert(Info->momentum[0] && Info->momentum[0]);
 #endif
+        set_init(&bfs_seen,Info->rows,Info->cols);
+        assert(bfs_seen.bitmask);
+        queue_init(&bfs_queue,Info->rows,Info->cols);
+        assert(bfs_queue.data);
         done_allocations=1;
     }
+    assert(r==Info->rows && c==Info->cols);
+    set_reinit(&bfs_seen);
+    queue_reinit(&bfs_queue);
     memset(Info->attacked_by, 0, Info->rows*Info->cols*sizeof(struct attackers_t));
     memset(Info->cost_map[cm_BATTLE],0,Info->rows*Info->cols*sizeof(double));
     memset(Info->cost_map[cm_VIS],0,Info->rows*Info->cols*sizeof(double));
@@ -714,6 +857,85 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
         }
 }
 
+#if BFS_ENABLE
+/**
+ * From Python version of mybot ...
+    def bfs_build_full_map(self,starts):
+        """ Build a full map of distances from starts to each square """
+        t1 = time.time()
+        new_map = zeros((self.rows,self.cols),int32)
+        #new_map = [[0]*self.cols for x in range(self.rows)]
+        search_counter=0
+        Q = [(s,0) for s in starts]
+        seen = set(starts)
+        #ld("bfs_all: %sx%s %s", self.rows, self.cols, seen)
+        while Q:
+            search_counter+=1
+            v,vs=Q.pop(0)
+            #ld("bfs: popped %s %s @%s %s", v,vs, search_counter, len(seen))
+            seen.add(v)
+            r,c = v
+            new_map[r][c] = vs
+            for w in self.neighbors(v):
+                if w not in seen:
+                    Q.append((w,vs+1))
+                    seen.add(w) # Add to seen now so we don't re-add it.
+                    #ld("bfs: seen %s %s", w,vs+1)
+        t2 = time.time()
+        ld("bfs_all done in %s\n%s",t2-t1,new_map)
+        return new_map
+ */
+
+void bfs_cost_map(struct game_state *Game, struct game_info *Info)
+{
+    int i;
+    int max_possible_dist = Info->rows*Info->cols;
+    struct timeval t_start, t_end;
+    gettimeofday(&t_start,NULL);
+    // Push all starting points onto the queue with scores:
+    for (i = 0; i < Game->food_count; ++i) {
+        struct q_data_t l;
+        l.offset = INDEX_AT(Game->food[i].row,Game->food[i].col);
+        l.distance = 0;
+        queue_push(&bfs_queue,&l);
+        set_insert(&bfs_seen,l.offset);
+    }
+    for (i = 0; i < Game->enemy_hill_count; ++i) {
+        struct q_data_t l;
+        l.offset = INDEX_AT(Game->enemy_hills[i].row,Game->enemy_hills[i].col);
+        l.distance = 0;
+        queue_push(&bfs_queue,&l);
+        set_insert(&bfs_seen,l.offset);
+    }
+    fprintf(stderr,"Put %d items into bfs_queue\n", Game->food_count + Game->enemy_hill_count);
+
+    while(!queue_is_empty(&bfs_queue)) {
+        struct q_data_t l;
+        queue_pop(&bfs_queue,(void*)&l);
+        set_insert(&bfs_seen,l.offset);
+        int offset = l.offset;
+        int j=0;
+        Info->cost_map[cm_BFS][offset] = (l.distance) / max_possible_dist; // :TODO: 
+        for(j=0;j<4;j++) { //For each neighbor
+            int noffset,ndistance=l.distance+1;
+            get_neighbor(Info, j, offset, &noffset,NULL);
+            if(IS_WATER(Info->map[noffset])) continue; // ... passable neighbor
+            int nl_r,nl_c;
+            AT_INDEX(nl_r,nl_c,noffset);
+
+            if( !set_is_member(&bfs_seen,noffset) ) {
+                l.offset = noffset;
+                l.distance=ndistance;
+                queue_push(&bfs_queue,&l);
+                set_insert(&bfs_seen,noffset);
+            }
+        }
+    }
+    gettimeofday(&t_end,NULL);
+    LOG("BFS calc: %lf\n",timevaldiff(&t_start,&t_end));
+}
+#endif
+
 #if USE_MOMENTUM
 inline char backwards(char d){
         switch(d){
@@ -781,27 +1003,27 @@ void render_plots(struct game_info *Info)
 #if PLOT_DUMP
     int i,j;
     for(i=0;i<Info->rows;i++) {
-        fprintf(stderr,"plt fod %03d: ", i);
+        fprintf(stderr,"plt food %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_FOOD][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt hil %03d: ", i);
+        fprintf(stderr,"plt hill %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_HILL][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt uns %03d: ", i);
+        fprintf(stderr,"plt unseen %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_UNSEEN][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt scr %03d: ", i);
+        fprintf(stderr,"plt score %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", calc_score(Info,INDEX_AT(i,j),'X'));
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt bat %03d: ", i);
+        fprintf(stderr,"plt batttle %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_BATTLE][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt vis %03d: ", i);
+        fprintf(stderr,"plt vision %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
             //fprintf(stderr,"%d.0 ", Info->vis_tmp[INDEX_AT(i,j)]);
@@ -809,6 +1031,10 @@ void render_plots(struct game_info *Info)
         fprintf(stderr,"plt defense %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_DEFENSE][INDEX_AT(i,j)]);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"plt bfs %03d: ", i);
+        for(j=0;j<Info->cols;j++)
+            fprintf(stderr,"%lf ", Info->cost_map[cm_BFS][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
     }
 #endif
@@ -818,6 +1044,7 @@ void do_turn(struct game_state *Game, struct game_info *Info)
 {
 	static int turn_count = 0;
     struct sigaction act;
+    memset(&act,0,sizeof(act));
     act.sa_handler = timeout;
     sigaction (SIGALRM, & act, 0);
 
@@ -839,6 +1066,7 @@ void do_turn(struct game_state *Game, struct game_info *Info)
     prepare_next_turn(Info);
     need_reset = 1;
 	diffuse_cost_map(Game,Info);
+    bfs_cost_map(Game, Info);
 
 	//render_map(Info);
 #if PLOT_DUMP

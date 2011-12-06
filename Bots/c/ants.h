@@ -11,6 +11,7 @@ enum {
     cm_VIS,
     cm_BATTLE,
     cm_DEFENSE,
+    cm_BFS,
     cm_TOTAL,
     cm_RAND=cm_TOTAL, // Only a weight, not a layer
     cm_MOMEN, // Only a weight, not a layer
@@ -57,11 +58,13 @@ struct game_state {
     struct my_ant *my_ants;
     struct my_ant *my_hills;
     struct basic_ant *enemy_ants;
+    struct basic_ant *enemy_hills;
     struct food *food;
     struct basic_ant *dead_ants;
     
     int my_count;
     int my_hill_count;
+    int enemy_hill_count;
     int enemy_count;
     int food_count;
     int dead_count;

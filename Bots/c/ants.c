@@ -86,6 +86,7 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
 
     int my_count = 0;
     int my_hill_count = 0;
+    int enemy_hill_count = 0;
     int enemy_count = 0;
     int food_count = 0;
     int dead_count = 0;
@@ -100,6 +101,8 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
             ++food_count;
         if (IS_MY_HILL(current))
             ++my_hill_count;
+        if (IS_ENEMY_HILL(current))
+            ++enemy_hill_count;
         if (IS_DEAD(current))
             ++dead_count;
         if(IS_ANT(current)) {
@@ -109,28 +112,31 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
                 ++enemy_count;
         }
     }
-    fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d, my_hills: %d\n",
-            food_count, my_count, dead_count, enemy_count, my_hill_count);
+    fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d, enemy_hill: %d, my_hills: %d\n",
+            food_count, my_count, dead_count, enemy_count, enemy_hill_count, my_hill_count);
 
     struct my_ant *my_old = 0;
     int my_old_count = game_state->my_count;
 
     game_state->my_count = my_count;
     game_state->my_hill_count = my_hill_count;
+    game_state->enemy_hill_count = enemy_hill_count;
     game_state->enemy_count = enemy_count;
     game_state->food_count = food_count;
     game_state->dead_count = dead_count;
 
-    if (game_state->my_ants != 0)
+    if (game_state->my_ants)
         my_old = game_state->my_ants;
 
-    if (game_state->my_hills != 0)
+    if (game_state->my_hills)
         free(game_state->my_hills);
-    if (game_state->enemy_ants != 0)
+    if (game_state->enemy_hills)
+        free(game_state->enemy_hills);
+    if (game_state->enemy_ants)
         free(game_state->enemy_ants);
-    if (game_state->food != 0)
+    if (game_state->food)
         free(game_state->food);
-    if (game_state->dead_ants != 0)
+    if (game_state->dead_ants)
         free(game_state->dead_ants);
 
     game_state->my_ants = malloc(my_count*sizeof(struct my_ant));
@@ -139,6 +145,11 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
         game_state->my_hills = malloc(my_hill_count*sizeof(struct my_ant));
     else
         game_state->my_hills = 0;
+
+    if (enemy_hill_count> 0)
+        game_state->enemy_hills = malloc(enemy_hill_count*sizeof(struct basic_ant));
+    else
+        game_state->enemy_hills = 0;
 
     if (enemy_count > 0)
         game_state->enemy_ants = malloc(enemy_count*sizeof(struct basic_ant));
@@ -170,6 +181,13 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
                 game_state->dead_ants[dead_count].row = i;
                 game_state->dead_ants[dead_count].col = j;
                 game_state->dead_ants[dead_count].player = current;
+            }
+            if (IS_ENEMY_HILL(current)) {
+                --enemy_hill_count;
+
+                game_state->enemy_hills[enemy_hill_count].row = i;
+                game_state->enemy_hills[enemy_hill_count].col = j;
+                game_state->enemy_hills[enemy_hill_count].player = current;
             }
             if (IS_MY_HILL(current)) {
                 --my_hill_count;
