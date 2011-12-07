@@ -4,6 +4,12 @@
 #include <math.h>
 #include <stdint.h>
 
+#ifdef DEBUG
+# define LOG(format,args...) fprintf(stderr,format,##args)
+#else
+# define LOG(format,args...)
+#endif
+
 enum {
     cm_FOOD,
     cm_HILL,
@@ -18,6 +24,13 @@ enum {
     w_RAND=cm_TOTAL,
     w_MOMEN,
     w_TOTAL,
+};
+
+enum{
+    st_STARTGAME,
+    st_MIDGAME,
+    st_ENDGAME,
+    st_TOTAL,
 };
 
 struct game_info {
@@ -37,6 +50,7 @@ struct game_info {
     int *vis_tmp;
     char *momentum[2];
     int cur_momentum_buf;
+    int game_strategy;
 
     struct game_state * Game;
 };
@@ -65,7 +79,7 @@ struct game_state {
     struct basic_ant *enemy_hills;
     struct food *food;
     struct basic_ant *dead_ants;
-    
+
     int my_count;
     int my_hill_count;
     int enemy_hill_count;

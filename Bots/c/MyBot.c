@@ -13,6 +13,8 @@
 #define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
 #define DEFEND_HILL_SCORE 0.99
 
+
+
 #include <assert.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -33,10 +35,8 @@
 #define PLT_VISION  (1<< 6)
 #define PLT_DEFENSE (1<< 7)
 #ifdef DEBUG
-# define LOG(format,args...) fprintf(stderr,format,##args)
-# define PLOT_DUMP (0|PLT_BFS|PLT_SCORE)
+# define PLOT_DUMP (0|PLT_SCORE|PLT_FOOD)
 #else
-# define LOG(format,args...)
 # define PLOT_DUMP (0)
 #endif
 
@@ -81,16 +81,42 @@ char weight_labels[w_TOTAL] = {
     [w_RAND]     = 'r',
     [w_MOMEN]    = 'm',
 };
-double weights[w_TOTAL] = {
-    [cm_FOOD]    = 2.5,
-    [cm_HILL]    = 5.0,
-    [cm_UNSEEN]  = 1.0,
-    [cm_VIS]     = 0.0125,
-    [cm_BATTLE]  = 1.0,
-    [cm_BFS]     = 1.0,
-    [cm_DEFENSE] = 5.0,
-    [w_RAND]     = 1e-10,//
-    [w_MOMEN]    = 0.0125,
+double weights[st_TOTAL][w_TOTAL] = {
+    [st_STARTGAME] = {
+        [cm_BFS]     = 1.0,
+
+        [cm_FOOD]    = 0.0,
+        [cm_HILL]    = 0.0,
+        [cm_UNSEEN]  = 0.0,
+        [cm_VIS]     = 0.0,
+        [cm_BATTLE]  = 0.0,
+        [cm_DEFENSE] = 0.0,
+        [w_RAND]     = 0.0,
+        [w_MOMEN]    = 0.0,
+    },
+    [st_MIDGAME] = {
+        [cm_FOOD]    = 2.5,
+        [cm_HILL]    = 5.0,
+        [cm_UNSEEN]  = 1.0,
+        [cm_VIS]     = 0.0125,
+        [cm_BATTLE]  = 1.0,
+        [cm_BFS]     = 1.0,
+        [cm_DEFENSE] = 5.0,
+        [w_RAND]     = 1e-10,//
+        [w_MOMEN]    = 0.0125,
+    },
+    [st_ENDGAME] = {
+        [cm_HILL]    = 5.0,
+        [cm_UNSEEN]  = 1.0,
+        [cm_BATTLE]  = 1.0,
+        [cm_BFS]     = 1.0,
+        [w_RAND]     = 1e-10,
+        [w_MOMEN]    = 0.0125,
+
+        [cm_FOOD]    = 0.0,
+        [cm_VIS]     = 0.0,
+        [cm_DEFENSE] = 0.0,
+    }
 };
 static int need_reset = 1;
 static jmp_buf buf;
@@ -386,7 +412,7 @@ int main(int argc, char *argv[])
     Game.food = 0;
     Game.dead_ants = 0;
 
-	int i;
+	int i,j;
 	for(i=0;i<argc;i++)
 	{
 		if( strcmp(argv[i],"--debug") ==0){
@@ -399,7 +425,8 @@ int main(int argc, char *argv[])
 				char *e;
 				double w = strtod(argv[i+j],&e);
 				if( e == argv[i+j]) break; // not a double?
-				weights[j]=w;
+				weights[st_MIDGAME][j]=w;
+                // :FIXME:
 			}
 			i+=j;
 		}else if( strcmp(argv[i],"--diffuse") == 0 ){
@@ -420,15 +447,18 @@ int main(int argc, char *argv[])
     char * log_file_name = malloc(strlen(LOG_FILE_NAME)+20);
     sprintf(log_file_name,LOG_FILE_NAME,getpid());
     FILE *f_tmp;
+#ifdef DEBUG
 	if(debug_on)
 		f_tmp = freopen(log_file_name,"wa+",stderr);
 	else
+#endif
 		f_tmp = freopen("/dev/null","wa+",stderr);
     free(log_file_name);
 
 
-	for(i=0;i<w_TOTAL;i++)
-		fprintf(stderr,"weight[%d] = %lf\n", i, weights[i]);
+    for(j=0;j<3;j++)
+        for(i=0;i<w_TOTAL;i++)
+            LOG("weight[%d][%d] = %lf\n", j, i, weights[j][i]);
 
 	// Some prints to check my new map data handling.
     //sanity_prints();
@@ -460,6 +490,9 @@ int main(int argc, char *argv[])
 
             *ins_data = getchar();
 
+            if (*ins_data == EOF) {
+                exit(0);
+            }
             if (*ins_data == '\n') {
                 char *backup = ins_data;
 
@@ -597,7 +630,7 @@ inline double get_hill_val(int offset, struct game_info *Info)
 {
     if( IS_ENEMY_HILL(Info->map[offset]) )
         return 1.0;
-    if( IS_WATER(Info->map[offset]) || 
+    if( IS_WATER(Info->map[offset]) ||
         IS_MY_HILL(Info->map[offset]) ) // HACK: check my hill here to clear the -1 set below
         return 0.0;
     if ( IS_MY_ANT(Info->map[offset]) )
@@ -897,13 +930,14 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
     struct timeval t_start, t_end;
     gettimeofday(&t_start,NULL);
     // Push all starting points onto the queue with scores:
-    for (i = 0; i < Game->food_count; ++i) {
-        struct q_data_t l;
-        l.offset = INDEX_AT(Game->food[i].row,Game->food[i].col);
-        l.distance = 0;
-        queue_push(&bfs_queue,&l);
-        set_insert(&bfs_seen,l.offset);
-    }
+    if(Info->game_strategy != st_ENDGAME)
+        for (i = 0; i < Game->food_count; ++i) {
+            struct q_data_t l;
+            l.offset = INDEX_AT(Game->food[i].row,Game->food[i].col);
+            l.distance = 0;
+            queue_push(&bfs_queue,&l);
+            set_insert(&bfs_seen,l.offset);
+        }
     for (i = 0; i < Game->enemy_hill_count; ++i) {
         struct q_data_t l;
         l.offset = INDEX_AT(Game->enemy_hills[i].row,Game->enemy_hills[i].col);
@@ -911,7 +945,7 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
         queue_push(&bfs_queue,&l);
         set_insert(&bfs_seen,l.offset);
     }
-    fprintf(stderr,"Put %d items into bfs_queue\n", Game->food_count + Game->enemy_hill_count);
+    LOG("Put %d items into bfs_queue\n", Game->food_count + Game->enemy_hill_count);
 
     while(!queue_is_empty(&bfs_queue)) {
         struct q_data_t l;
@@ -970,15 +1004,15 @@ inline double calc_score(struct game_info *Info, int offset, int noffset, char d
     int i;
     for(i=0;i<cm_TOTAL;i++) {
         //if(im_dead() && i==cm_FOOD) continue;
-        weight_total += weights[i];
-        score += weights[i] * Info->cost_map[i][noffset];
+        weight_total += weights[Info->game_strategy][i];
+        score += weights[Info->game_strategy][i] * Info->cost_map[i][noffset];
     }
-    weight_total+=weights[w_RAND];
-    score += weights[w_RAND]*rand()/(double)RAND_MAX;
+    weight_total+=weights[Info->game_strategy][w_RAND];
+    score += weights[Info->game_strategy][w_RAND]*rand()/(double)RAND_MAX;
 
 #if USE_MOMENTUM
-    weight_total+=weights[w_MOMEN];
-    score += weights[w_MOMEN]*calc_momentum(Info,offset,d);
+    weight_total+=weights[Info->game_strategy][w_MOMEN];
+    score += weights[Info->game_strategy][w_MOMEN]*calc_momentum(Info,offset,d);
 #endif
 
     return score / weight_total;
@@ -990,19 +1024,19 @@ static void print_scores(struct game_info *Info,int offset,int noffset, char d, 
     double weight_total=0.0;
     int i;
     for(i=0;i<cm_TOTAL;i++)
-        weight_total += weights[i];
-    weight_total+=weights[w_RAND];
+        weight_total += weights[Info->game_strategy][i];
+    weight_total+=weights[Info->game_strategy][w_RAND];
 #if USE_MOMENTUM
-    weight_total+=weights[w_MOMEN];
+    weight_total+=weights[Info->game_strategy][w_MOMEN];
 #endif
     for(i=0;i<cm_TOTAL;i++) {
-        double w = raw?1.0:weights[i];
+        double w = raw?1.0:weights[Info->game_strategy][i];
         double wt = raw?1.0:weight_total;
         LOG("%c%f ", weight_labels[i], w * Info->cost_map[i][noffset] / wt);
     }
 #if USE_MOMENTUM
     {
-        double w = raw?1.0:weights[w_MOMEN];
+        double w = raw?1.0:weights[Info->game_strategy][w_MOMEN];
         double wt = raw?1.0:weight_total;
         LOG("%c%f",weight_labels[w_MOMEN], w*calc_momentum(Info,offset,d)/wt);
     }
@@ -1087,8 +1121,17 @@ void do_turn(struct game_state *Game, struct game_info *Info)
 #ifdef TIMEOUT_PROTECTION
     if (setjmp(buf) != 0)
         goto turn_done;
-    ualarm(Info->turntime-20,0);
+    useconds_t u = ualarm( 1000*(Info->turntime-20),0);
+    u=u; // Unused var warning
 #endif
+
+    /// UPDATE STRATEGY MODE
+    if(turn_count>10 &&
+       Info->game_strategy == st_STARTGAME)
+        Info->game_strategy = st_MIDGAME;
+    if(Game->my_hill_count == 0 &&
+       Info->game_strategy == st_MIDGAME)
+        Info->game_strategy = st_ENDGAME;
 
     prepare_next_turn(Info);
     need_reset = 1;
@@ -1146,7 +1189,8 @@ void do_turn(struct game_state *Game, struct game_info *Info)
     // otherwise will do start of next turn.
     prepare_next_turn(Info);
 #ifdef TIMEOUT_PROTECTION
-    ualarm(0,0);
+    u = ualarm(0,0);
+    LOG(" ---- %dus remaining on timers\n", u);
 turn_done:
 #endif
 	return;

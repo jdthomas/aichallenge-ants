@@ -112,8 +112,8 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
                 ++enemy_count;
         }
     }
-    fprintf(stderr, "food: %d, my: %d, dead: %d, enemy: %d, enemy_hill: %d, my_hills: %d\n",
-            food_count, my_count, dead_count, enemy_count, enemy_hill_count, my_hill_count);
+    LOG("food: %d, my: %d, dead: %d, enemy: %d, enemy_hill: %d, my_hills: %d\n",
+        food_count, my_count, dead_count, enemy_count, enemy_hill_count, my_hill_count);
 
     struct my_ant *my_old = 0;
     int my_old_count = game_state->my_count;
@@ -310,7 +310,7 @@ void _init_map(char *data, struct game_info *Info)
         }
         if(new_knol[new_knol_count].value!=255)
             new_knol_count++;
-        //else fprintf(stderr,"PROBLEM, unrecognized item, %c\n", *data); // Catches a 'g' probably from 'go'?
+        //else LOG("PROBLEM, unrecognized item, %c\n", *data); // Catches a 'g' probably from 'go'?
 
         data = tmp_ptr + 1;
     }
