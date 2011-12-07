@@ -1,3 +1,14 @@
+#include <assert.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/signal.h>
+#include <sys/time.h>
+#include <unistd.h>
+
 #include "ants.h"
 
 #define BFS_ENABLE 1
@@ -12,19 +23,8 @@
 //#define NEAR_HOME_DIST_SQ 100
 #define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
 #define DEFEND_HILL_SCORE 0.99
+#define STRATEGY_STARTGAME_TURNS  10
 
-
-
-#include <assert.h>
-#include <setjmp.h>
-#include <signal.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/signal.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 #define PLT_BFS     (1<< 0)
 #define PLT_SCORE   (1<< 1)
@@ -48,19 +48,21 @@
 // [ ] 1.4 ??? Instead of defense layer, enemylocation * distance to hill ???
 // 				Simple as difusing enemys and diffusing my_hills and multiply in calc_score
 // [X] 2. remember seen stuff until see the cell and it is gone
-// [ ] 3. slight preference for momentum?
-// [ ] 4. once dead, attack bases, ignore food.
-// [ ] 5. sort my ants by degrees of freedom and move most constrained ones
+// [X] 3. slight preference for momentum?
+// [X] 4. once dead, attack bases, ignore food.
+// [/] 5. sort my ants by degrees of freedom and move most constrained ones
 //        first? Or sort them by best moves? n**2? move people who "stayed put"
 //        last move first? Randomize the order I iterate atns to move them?
 //        The problem trying to solve is when two ants toggle places in two
-//        local minima.
+//        local minima. -- currently randomized, seems to help.
 // [X] 6. distance -> edist edist_sq functions, save from doing sqrt so much
 // [/] 7. Move globals into game_info?
-// [ ] 8. random_walk_04p_01 bug, equal distance food confuses us
+// [/] 8. random_walk_04p_01 bug, equal distance food confuses us -- should be
+//        fixed by using BFS only for first 10 turns; may want to tune this.
 // [ ] 9. test timeout protection, possibly add two-staged timeout, so can move
 //        some ants in a turn based on stale info.
 // [ ] 10. Recently been layer? "for c in cells: if MyANT(c): c-=X; elif c<0: c+=1" diffused?
+// [ ] 11. Add attacking enemies to the BFS list
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -134,28 +136,6 @@ struct dequeue_t {
     int pop;
     int len;
 };
-#if 0
-void queue_dump_r(struct dequeue_t *Q){
-	struct dequeue_node_t *n = Q->tail;
-	fprintf(stderr,"rrrrrrrrrrrrrrrv\n");
-	while(n){
-		struct scored_loc_t *l = (struct scored_loc_t*) n->data;
-		fprintf(stderr,"walkr: %p - (%d,%d,%d)\n", l, l->loc.row, l->loc.col, l->score);
-		n = n->prev;
-	}
-	fprintf(stderr,"rrrrrrrrrrrrrrr^\n");
-}
-void queue_dump_f(struct dequeue_t *Q){
-	struct dequeue_node_t *n = Q->head;
-	fprintf(stderr,"fffffffffffffffv\n");
-	while(n){
-		struct scored_loc_t *l = (struct scored_loc_t*) n->data;
-		fprintf(stderr,"walkf: %p - (%d,%d,%d)\n", l, l->loc.row, l->loc.col, l->score);
-		n = n->next;
-	}
-	fprintf(stderr,"fffffffffffffff^\n");
-}
-#endif
 
 void queue_reinit(struct dequeue_t *Q)
 {
@@ -580,7 +560,6 @@ void prepare_next_turn(struct game_info *Info)
     memset(Info->cost_map[cm_VIS],0,Info->rows*Info->cols*sizeof(double));
     memset(Info->cost_map[cm_BFS],0,Info->rows*Info->cols*sizeof(double));
 #if USE_MOMENTUM
-#define SWAP(A,B) ({typeof(A) tmp=A;A=B;B=tmp;})
     Info->cur_momentum_buf = 1-Info->cur_momentum_buf;
     memset(Info->momentum[Info->cur_momentum_buf],0,Info->rows*Info->cols);
 #endif
@@ -895,34 +874,6 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
 }
 
 #if BFS_ENABLE
-/**
- * From Python version of mybot ...
-    def bfs_build_full_map(self,starts):
-        """ Build a full map of distances from starts to each square """
-        t1 = time.time()
-        new_map = zeros((self.rows,self.cols),int32)
-        #new_map = [[0]*self.cols for x in range(self.rows)]
-        search_counter=0
-        Q = [(s,0) for s in starts]
-        seen = set(starts)
-        #ld("bfs_all: %sx%s %s", self.rows, self.cols, seen)
-        while Q:
-            search_counter+=1
-            v,vs=Q.pop(0)
-            #ld("bfs: popped %s %s @%s %s", v,vs, search_counter, len(seen))
-            seen.add(v)
-            r,c = v
-            new_map[r][c] = vs
-            for w in self.neighbors(v):
-                if w not in seen:
-                    Q.append((w,vs+1))
-                    seen.add(w) # Add to seen now so we don't re-add it.
-                    #ld("bfs: seen %s %s", w,vs+1)
-        t2 = time.time()
-        ld("bfs_all done in %s\n%s",t2-t1,new_map)
-        return new_map
- */
-
 void bfs_cost_map(struct game_state *Game, struct game_info *Info)
 {
     int i;
@@ -993,6 +944,7 @@ inline double calc_momentum(struct game_info *Info,int offset, char d) {
     char od = Info->momentum[1-Info->cur_momentum_buf][offset];
     if(od==d) return 1.0;
     if(od==backwards(d)) return 0.0;
+    //:TODO: .66 for 90degrees off, .33 for stayput and was moving?
     return 0.5;
 }
 #endif
@@ -1126,7 +1078,7 @@ void do_turn(struct game_state *Game, struct game_info *Info)
 #endif
 
     /// UPDATE STRATEGY MODE
-    if(turn_count>10 &&
+    if(turn_count>STRATEGY_STARTGAME_TURNS &&
        Info->game_strategy == st_STARTGAME)
         Info->game_strategy = st_MIDGAME;
     if(Game->my_hill_count == 0 &&
