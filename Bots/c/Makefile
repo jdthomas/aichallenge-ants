@@ -1,6 +1,6 @@
 CC=gcc
-#CFLAGS=-O3 -funroll-loops -c
-CFLAGS=-O0 -g -c -g -Wall
+CFLAGS=-O0 -g -c -g -Wall -DDEBUG
+#CFLAGS=-O0 -g -c -g -Wall
 #LDFLAGS=-O2 -lm
 LDFLAGS=-O2 -lm -g
 SOURCES=MyBot.c ants.c

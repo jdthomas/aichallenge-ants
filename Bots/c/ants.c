@@ -233,9 +233,6 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     // Alternatives are sorting by something (degrees of freedom, ...)
     shuffle_ants(game_state->my_count,game_state->my_ants);
 
-    fprintf(stderr, "ZERO? food: %d, my: %d, dead: %d, enemy: %d, my_hills: %d\n",
-            food_count, my_count, dead_count, enemy_count, my_hill_count);
-
     if (my_old != 0)
         free(my_old);
 }
@@ -313,7 +310,7 @@ void _init_map(char *data, struct game_info *Info)
         }
         if(new_knol[new_knol_count].value!=255)
             new_knol_count++;
-        else fprintf(stderr,"PROBLEM, unrecognized item, %c\n", *data);
+        //else fprintf(stderr,"PROBLEM, unrecognized item, %c\n", *data); // Catches a 'g' probably from 'go'?
 
         data = tmp_ptr + 1;
     }

@@ -3,7 +3,7 @@
 #define BFS_ENABLE 1
 
 #define USE_MOMENTUM 1
-#define PLOT_DUMP 1
+//
 //#define DIFFUSE_BATTLE
 #define TIMEOUT_PROTECTION
 //#define DIFFUSE_VIS
@@ -11,6 +11,7 @@
 #define DEFEND_HILL 1
 //#define NEAR_HOME_DIST_SQ 100
 #define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
+#define DEFEND_HILL_SCORE 0.99
 
 #include <assert.h>
 #include <setjmp.h>
@@ -23,8 +24,21 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define LOG(format,args...) fprintf(stderr,format,##args)
-//#define LOG(format,args...)
+#define PLT_BFS     (1<< 0)
+#define PLT_SCORE   (1<< 1)
+#define PLT_FOOD    (1<< 2)
+#define PLT_HILL    (1<< 3)
+#define PLT_UNSEEN  (1<< 4)
+#define PLT_BATTLE  (1<< 5)
+#define PLT_VISION  (1<< 6)
+#define PLT_DEFENSE (1<< 7)
+#ifdef DEBUG
+# define LOG(format,args...) fprintf(stderr,format,##args)
+# define PLOT_DUMP (0|PLT_BFS|PLT_SCORE)
+#else
+# define LOG(format,args...)
+# define PLOT_DUMP (0)
+#endif
 
 // TODO:
 // [/] 1. defence
@@ -56,40 +70,28 @@ struct attackers_t {
 };
 double alpha[cm_TOTAL] = {0.8, 0.8, 0.8, 0.8, 0.8, 0.8};
 //double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
-double weights[cm_TOTAL+2] = {
-#if 1
-    [cm_FOOD]   =  1.0,
-    [cm_HILL]   =  4.0,
-    [cm_UNSEEN] =  0.000125,
-    [cm_VIS]    =  0.0000125,
-    [cm_BATTLE] =  5.0,
-    [cm_BFS]    =  0.0,
-    [cm_DEFENSE] =  5.0,
-    [cm_RAND]   = 1.0e-10,
-    [cm_MOMEN]   = 0.000125,
-#else
-    [cm_FOOD]   =  1.0,
-    [cm_HILL]   =  3.0,
-    [cm_UNSEEN] =  0.25,
-    [cm_VIS]    =  0.0000125,
-    [cm_BATTLE] =  2.0,
-    [cm_BFS]    =  0.0,
-    [cm_DEFENSE]=  2.0,
-    [cm_RAND]   =  0.00125,
-    [cm_MOMEN]  =  0.000125,
-#endif
+char weight_labels[w_TOTAL] = {
+    [cm_FOOD]    = 'f',
+    [cm_HILL]    = 'h',
+    [cm_UNSEEN]  = 'u',
+    [cm_VIS]     = 'v',
+    [cm_BATTLE]  = 'b',
+    [cm_BFS]     = 's',
+    [cm_DEFENSE] = 'd',
+    [w_RAND]     = 'r',
+    [w_MOMEN]    = 'm',
 };
-#if 0
-const double weights[cm_TOTAL] = {
-    [cm_FOOD]   =  10.0,
-    [cm_HILL]   =  20.0,
-    [cm_UNSEEN] =   0.25,
-    [cm_VIS]    =   0.0125,
-    [cm_BATTLE] = 100.0,
-    //[cm_RAND]   = 1.0e-10
-    //[cm_MOMEN]   = 0.000125,
+double weights[w_TOTAL] = {
+    [cm_FOOD]    = 2.5,
+    [cm_HILL]    = 5.0,
+    [cm_UNSEEN]  = 1.0,
+    [cm_VIS]     = 0.0125,
+    [cm_BATTLE]  = 1.0,
+    [cm_BFS]     = 1.0,
+    [cm_DEFENSE] = 5.0,
+    [w_RAND]     = 1e-10,//
+    [w_MOMEN]    = 0.0125,
 };
-#endif
 static int need_reset = 1;
 static jmp_buf buf;
 static int debug_on=0;
@@ -298,10 +300,10 @@ void move(int index, char dir, struct game_state* Game, struct game_info* Info)
             break;
     }
 
-    int offset = Game->my_ants[index].row*Info->cols+Game->my_ants[index].col;
+    int offset = INDEX_AT(Game->my_ants[index].row,Game->my_ants[index].col);
 	Info->map[offset] |= MOVE_BIT;
 #if USE_MOMENTUM
-    Info->momentum[1][offset] = dir;
+    Info->momentum[Info->cur_momentum_buf][offset] = dir;
 #endif
 }
 
@@ -392,7 +394,7 @@ int main(int argc, char *argv[])
 		}else if( strcmp(argv[i],"--weights") == 0 ){
 			int j;
 			i++;
-			for(j=0;j<cm_TOTAL+1&&i+j<argc;j++)
+			for(j=0;j<w_TOTAL&&i+j<argc;j++)
 			{
 				char *e;
 				double w = strtod(argv[i+j],&e);
@@ -425,7 +427,7 @@ int main(int argc, char *argv[])
     free(log_file_name);
 
 
-	for(i=0;i<cm_TOTAL;i++)
+	for(i=0;i<w_TOTAL;i++)
 		fprintf(stderr,"weight[%d] = %lf\n", i, weights[i]);
 
 	// Some prints to check my new map data handling.
@@ -528,6 +530,7 @@ void prepare_next_turn(struct game_info *Info)
             Info->momentum[0] = calloc(1,Info->rows*Info->cols);
         if(!Info->momentum[1])
             Info->momentum[1] = calloc(1,Info->rows*Info->cols);
+        Info->cur_momentum_buf = 0;
         assert(Info->momentum[0] && Info->momentum[0]);
 #endif
         set_init(&bfs_seen,Info->rows,Info->cols);
@@ -542,10 +545,11 @@ void prepare_next_turn(struct game_info *Info)
     memset(Info->attacked_by, 0, Info->rows*Info->cols*sizeof(struct attackers_t));
     memset(Info->cost_map[cm_BATTLE],0,Info->rows*Info->cols*sizeof(double));
     memset(Info->cost_map[cm_VIS],0,Info->rows*Info->cols*sizeof(double));
+    memset(Info->cost_map[cm_BFS],0,Info->rows*Info->cols*sizeof(double));
 #if USE_MOMENTUM
 #define SWAP(A,B) ({typeof(A) tmp=A;A=B;B=tmp;})
-    SWAP(Info->momentum[0],Info->momentum[1]);
-    memset(Info->momentum[1],0,Info->rows*Info->cols);
+    Info->cur_momentum_buf = 1-Info->cur_momentum_buf;
+    memset(Info->momentum[Info->cur_momentum_buf],0,Info->rows*Info->cols);
 #endif
     need_reset = 0;
 }
@@ -850,7 +854,7 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
                     r = WRAP_R(r+dmap[d][0]);
                     c = WRAP_C(c+dmap[d][1]);
                     int doffset = INDEX_AT(r,c);
-                    Info->cost_map[cm_DEFENSE][doffset] = 1.0;
+                    Info->cost_map[cm_DEFENSE][doffset] = DEFEND_HILL_SCORE;
                 }
 #endif
             }
@@ -889,7 +893,7 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
 void bfs_cost_map(struct game_state *Game, struct game_info *Info)
 {
     int i;
-    int max_possible_dist = Info->rows*Info->cols;
+    int max_possible_dist = Info->rows+Info->cols; // :TODO: fix this
     struct timeval t_start, t_end;
     gettimeofday(&t_start,NULL);
     // Push all starting points onto the queue with scores:
@@ -914,10 +918,10 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
         queue_pop(&bfs_queue,(void*)&l);
         set_insert(&bfs_seen,l.offset);
         int offset = l.offset;
-        int j=0;
-        Info->cost_map[cm_BFS][offset] = (l.distance) / max_possible_dist; // :TODO: 
+        int j=0,ndistance=l.distance+1;
+        Info->cost_map[cm_BFS][offset] = (double)max(0,(max_possible_dist - l.distance)) / (double)max_possible_dist;
         for(j=0;j<4;j++) { //For each neighbor
-            int noffset,ndistance=l.distance+1;
+            int noffset;
             get_neighbor(Info, j, offset, &noffset,NULL);
             if(IS_WATER(Info->map[noffset])) continue; // ... passable neighbor
             int nl_r,nl_c;
@@ -952,14 +956,14 @@ inline char backwards(char d){
         return d;
 }
 inline double calc_momentum(struct game_info *Info,int offset, char d) {
-    char od = Info->momentum[0][offset];
+    char od = Info->momentum[1-Info->cur_momentum_buf][offset];
     if(od==d) return 1.0;
     if(od==backwards(d)) return 0.0;
     return 0.5;
 }
 #endif
 
-inline double calc_score(struct game_info *Info, int offset, char d)
+inline double calc_score(struct game_info *Info, int offset, int noffset, char d)
 {
     double score = 0.0;
     double weight_total=0.0;
@@ -967,78 +971,101 @@ inline double calc_score(struct game_info *Info, int offset, char d)
     for(i=0;i<cm_TOTAL;i++) {
         //if(im_dead() && i==cm_FOOD) continue;
         weight_total += weights[i];
-        score += weights[i] * Info->cost_map[i][offset];
+        score += weights[i] * Info->cost_map[i][noffset];
     }
-    weight_total+=weights[cm_RAND];
-    score += weights[cm_RAND]*rand()/(double)RAND_MAX;
+    weight_total+=weights[w_RAND];
+    score += weights[w_RAND]*rand()/(double)RAND_MAX;
 
 #if USE_MOMENTUM
-    weight_total+=weights[cm_MOMEN];
-    score += weights[cm_MOMEN]*calc_momentum(Info,offset,d);
+    weight_total+=weights[w_MOMEN];
+    score += weights[w_MOMEN]*calc_momentum(Info,offset,d);
 #endif
 
     return score / weight_total;
 }
 
-void print_scores(struct game_info *Info,int offset,char d)
+#if DEBUG
+static void print_scores(struct game_info *Info,int offset,int noffset, char d, int raw)
 {
     double weight_total=0.0;
     int i;
     for(i=0;i<cm_TOTAL;i++)
         weight_total += weights[i];
-    weight_total+=weights[cm_RAND];
+    weight_total+=weights[w_RAND];
 #if USE_MOMENTUM
-    weight_total+=weights[cm_MOMEN];
+    weight_total+=weights[w_MOMEN];
 #endif
-    for(i=0;i<cm_TOTAL;i++)
-        LOG("%f,",weights[i] * Info->cost_map[i][offset]/weight_total);
+    for(i=0;i<cm_TOTAL;i++) {
+        double w = raw?1.0:weights[i];
+        double wt = raw?1.0:weight_total;
+        LOG("%c%f ", weight_labels[i], w * Info->cost_map[i][noffset] / wt);
+    }
 #if USE_MOMENTUM
-    LOG("%f",weights[cm_MOMEN]*calc_momentum(Info,offset,d)/weight_total);
+    {
+        double w = raw?1.0:weights[w_MOMEN];
+        double wt = raw?1.0:weight_total;
+        LOG("%c%f",weight_labels[w_MOMEN], w*calc_momentum(Info,offset,d)/wt);
+    }
 #endif
 }
 
-void render_plots(struct game_info *Info)
+static void render_plots(struct game_info *Info)
 {
     if(!debug_on) return;
-#if PLOT_DUMP
     int i,j;
     for(i=0;i<Info->rows;i++) {
+# if (PLOT_DUMP&PLT_FOOD)
         fprintf(stderr,"plt food %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_FOOD][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
+# if (PLOT_DUMP&PLT_HILL)
         fprintf(stderr,"plt hill %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_HILL][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
+# if (PLOT_DUMP&PLT_UNSEEN)
         fprintf(stderr,"plt unseen %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_UNSEEN][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
+# if (PLOT_DUMP&PLT_SCORE)
         fprintf(stderr,"plt score %03d: ", i);
         for(j=0;j<Info->cols;j++)
-            fprintf(stderr,"%lf ", calc_score(Info,INDEX_AT(i,j),'X'));
+            fprintf(stderr,"%lf ", calc_score(Info,INDEX_AT(i,j),INDEX_AT(i,j),'X'));
         fprintf(stderr,"\n");
-        fprintf(stderr,"plt batttle %03d: ", i);
+# endif
+# if (PLOT_DUMP&PLT_BATTLE)
+        fprintf(stderr,"plt battle %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_BATTLE][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
+# if (PLOT_DUMP&PLT_VISION)
         fprintf(stderr,"plt vision %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_VIS][INDEX_AT(i,j)]);
             //fprintf(stderr,"%d.0 ", Info->vis_tmp[INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
+# if (PLOT_DUMP&PLT_DEFENSE)
         fprintf(stderr,"plt defense %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_DEFENSE][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
+# if (PLOT_DUMP&PLT_BFS)
         fprintf(stderr,"plt bfs %03d: ", i);
         for(j=0;j<Info->cols;j++)
             fprintf(stderr,"%lf ", Info->cost_map[cm_BFS][INDEX_AT(i,j)]);
         fprintf(stderr,"\n");
+# endif
     }
-#endif
 }
+#endif
 
 void do_turn(struct game_state *Game, struct game_info *Info)
 {
@@ -1068,11 +1095,6 @@ void do_turn(struct game_state *Game, struct game_info *Info)
 	diffuse_cost_map(Game,Info);
     bfs_cost_map(Game, Info);
 
-	//render_map(Info);
-#if PLOT_DUMP
-    render_plots(Info);
-#endif
-
     for (i = 0; i < Game->my_count; ++i) {
         struct my_ant * m = &Game->my_ants[i];
         int offset = INDEX_AT(m->row,m->col);
@@ -1089,11 +1111,16 @@ void do_turn(struct game_state *Game, struct game_info *Info)
             AT_INDEX(nl_r,nl_c,noffset);
             // Don't double move to a square, or to into water
             if(IS_WATER(Info->map[noffset]) || (Info->map[noffset] & MOVE_BIT)) continue;
-            double score = calc_score(Info,noffset,d);
+            double score = calc_score(Info,offset,noffset,d);
+#ifdef DEBUG
             LOG("  ?move (%d,%d)->(%d,%d) %lf [",
                 m->row,m->col, nl_r,nl_c, score);
-            print_scores(Info,noffset,d);
+            print_scores(Info,offset,noffset,d,0);
             LOG("] %c\n", d );
+            LOG("                                  [");
+            print_scores(Info,offset,noffset,d,1);
+            LOG("] %c\n", d );
+#endif
 
             if(score>max_score) {
                 max_score=score;
@@ -1109,6 +1136,11 @@ void do_turn(struct game_state *Game, struct game_info *Info)
             LOG("Moved (%d,%d) %c %lf\n", m->row,m->col, dir, max_score);
         }
     }
+
+	//render_map(Info);
+#if PLOT_DUMP
+    render_plots(Info);
+#endif
 
     // Start preperation of next turn now, better to finsh now if we have time
     // otherwise will do start of next turn.
