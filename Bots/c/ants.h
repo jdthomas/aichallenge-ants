@@ -4,6 +4,9 @@
 #include <math.h>
 #include <stdint.h>
 
+#define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
+#define VERY_NEAR_HOME_DIST_SQ (2*Info->attackradius_sq)
+
 #ifdef DEBUG
 # define LOG(format,args...) fprintf(stderr,format,##args)
 #else
@@ -96,14 +99,16 @@ struct game_state {
 #define MAP_LAND            ((uint8_t)2)
 #define MAP_FOOD            ((uint8_t)4)
 //#define BACKGROUND_BIT      ((uint8_t)0)
+#define NEAR_HOME_BIT       ((uint8_t)0x08)
 #define ANT_BIT             ((uint8_t)0x10)
 #define HILL_BIT            ((uint8_t)0x20)
 #define DEAD_BIT            ((uint8_t)0x40)
 #define MOVE_BIT            ((uint8_t)0x80)
 #define BACKGROUND_MASK     ((uint8_t)ANT_BIT|HILL_BIT|DEAD_BIT)
+#define OWNER_MASK          ((uint8_t)0x7)
 
 static inline int GET_OWNER(uint8_t c){
-    return (c&0xf);
+    return (c&OWNER_MASK);
 }
 static inline int IS_LAND(uint8_t c){
 	return (0==(c&BACKGROUND_MASK)) && (GET_OWNER(c)==MAP_LAND);
@@ -140,6 +145,9 @@ static inline int IS_DEAD(uint8_t c){
 }
 static inline int IS_MOVE(uint8_t c){
 	return !!(c&MOVE_BIT);
+}
+static inline int IS_NEAR_HOME(uint8_t c){
+	return !!(c&NEAR_HOME_BIT);
 }
 
 static inline int IS_OBJECT(uint8_t c){
@@ -195,4 +203,6 @@ void _init_ants(char *data, struct game_info *game_info);
 void _init_game(struct game_info *game_info, struct game_state *game_state);
 int edist_sq(int row1, int col1, int row2, int col2, struct game_info *Info);
 double edist(int row1, int col1, int row2, int col2, struct game_info *Info);
+
+int near_home_calc(struct game_info *Info, int offset, int rad);
 

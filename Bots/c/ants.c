@@ -236,7 +236,18 @@ void _init_game(struct game_info *game_info, struct game_state *game_state) {
     if (my_old != 0)
         free(my_old);
 }
-
+int near_home_calc(struct game_info *Info, int offset, int rad)
+{
+    int r,c;
+    AT_INDEX(r,c,offset);
+    int h;
+    for(h=0;h<Info->Game->my_hill_count;h++){
+        struct my_ant *e = &Info->Game->my_hills[h];
+        if( edist_sq(e->row,e->col,r,c,Info) < rad )
+            return 1;
+    }
+    return 0;
+}
 struct knowledge_t {
     int offset;
     uint8_t value;
@@ -350,6 +361,9 @@ void _init_map(char *data, struct game_info *Info)
         if ( Info->vis_tmp[i] &&
              (IS_OBJECT(Info->map[i])||IS_UNSEEN(Info->map[i])) )
             Info->map[i] = MAP_LAND;
+        // Optimize by tracking 'near' home in the map
+        if( near_home_calc(Info,i,NEAR_HOME_DIST_SQ) )
+            Info->map[i] |= NEAR_HOME_BIT;
     }
     // Add new knowledge
     for(i=0;i<new_knol_count;i++) {
@@ -359,7 +373,8 @@ void _init_map(char *data, struct game_info *Info)
             ((IS_ANT(cur) && IS_HILL(new)) || (IS_ANT(new) && IS_HILL(cur))) )
             Info->map[new_knol[i].offset]|=new_knol[i].value;
         else
-            Info->map[new_knol[i].offset]=new_knol[i].value;
+            Info->map[new_knol[i].offset]=new_knol[i].value 
+                | (Info->map[new_knol[i].offset]& NEAR_HOME_BIT); // maintain the near_home bit
     }
 }
 
@@ -374,13 +389,15 @@ void render_map(struct game_info *Info) {
 		fprintf(stderr,"%03d: ", i);
 		for(j=0;j<Info->cols;j++) {
 			char render = '_';
-				 if(IS_LAND(Info->map[i*Info->cols+j]))  render = '.';
-			else if(IS_WATER(Info->map[i*Info->cols+j])) render = '%';
-			else if(IS_UNSEEN(Info->map[i*Info->cols+j]))render = '?';
-			else if(IS_FOOD(Info->map[i*Info->cols+j]))  render = '*';
-			else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+GET_OWNER(Info->map[i*Info->cols+j]);
-			else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+GET_OWNER(Info->map[i*Info->cols+j]);
-			else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+GET_OWNER(Info->map[i*Info->cols+j]);
+            if(IS_NEAR_HOME(Info->map[i*Info->cols+j]))render='X';
+			//char render = '_';
+			//	 if(IS_LAND(Info->map[i*Info->cols+j]))  render = '.';
+			//else if(IS_WATER(Info->map[i*Info->cols+j])) render = '%';
+			//else if(IS_UNSEEN(Info->map[i*Info->cols+j]))render = '?';
+			//else if(IS_FOOD(Info->map[i*Info->cols+j]))  render = '*';
+			//else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+GET_OWNER(Info->map[i*Info->cols+j]);
+			//else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+GET_OWNER(Info->map[i*Info->cols+j]);
+			//else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+GET_OWNER(Info->map[i*Info->cols+j]);
 			fprintf(stderr,"%c", render);
 			//fprintf(stderr,"%3d ", Info->map[i*Info->cols+j]);
 		}

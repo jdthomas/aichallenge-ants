@@ -15,15 +15,12 @@
 
 #define USE_MOMENTUM 1
 //
-//#define DIFFUSE_BATTLE
 #define TIMEOUT_PROTECTION
-//#define DIFFUSE_VIS
 #define ANTS_PER_DEFENDER 8
 #define DEFEND_HILL 1
-//#define NEAR_HOME_DIST_SQ 100
-#define NEAR_HOME_DIST_SQ (2*Info->viewradius_sq)
 #define DEFEND_HILL_SCORE 0.99
 #define STRATEGY_STARTGAME_TURNS  10
+#define DIFFUSION_PASSES 10
 
 
 #define PLT_BFS     (1<< 0)
@@ -35,9 +32,11 @@
 #define PLT_VISION  (1<< 6)
 #define PLT_DEFENSE (1<< 7)
 #ifdef DEBUG
-# define PLOT_DUMP (0|PLT_SCORE|PLT_FOOD)
+# define PLOT_DUMP (0|PLT_SCORE|PLT_DEFENSE)
+# define ASCII_MAP_DUMP (0)
 #else
 # define PLOT_DUMP (0)
+# define ASCII_MAP_DUMP (0)
 #endif
 
 // TODO:
@@ -63,6 +62,11 @@
 //        some ants in a turn based on stale info.
 // [ ] 10. Recently been layer? "for c in cells: if MyANT(c): c-=X; elif c<0: c+=1" diffused?
 // [ ] 11. Add attacking enemies to the BFS list
+// [ ] 12. Tuning ... dont seem to attack hills well from a distance. 
+// [ ] 13. Maybe? Dynamic weighting .. if seeing 'many' more of my ants than
+//         enemy more liberally attack [hills]?
+// [ ] 14. Maybe? Different weight sets for different goals some number of ants
+//         use different weights? eg. Attacking, exploring, etc.
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -70,8 +74,8 @@ struct attackers_t {
 	int atkr_count;
 	int atkrs[MAX_ATTACKERS];
 };
-double alpha[cm_TOTAL] = {0.8, 0.8, 0.8, 0.8, 0.8, 0.8};
-//double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
+//double alpha[cm_TOTAL] = {0.8, 0.8, 0.8, 0.8, 0.8, 0.8};
+double alpha[cm_TOTAL] = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
 char weight_labels[w_TOTAL] = {
     [cm_FOOD]    = 'f',
     [cm_HILL]    = 'h',
@@ -86,10 +90,10 @@ char weight_labels[w_TOTAL] = {
 double weights[st_TOTAL][w_TOTAL] = {
     [st_STARTGAME] = {
         [cm_BFS]     = 1.0,
+        [cm_UNSEEN]  = 0.0125, // for rare case there is zero food visible at start?
 
         [cm_FOOD]    = 0.0,
         [cm_HILL]    = 0.0,
-        [cm_UNSEEN]  = 0.0,
         [cm_VIS]     = 0.0,
         [cm_BATTLE]  = 0.0,
         [cm_DEFENSE] = 0.0,
@@ -228,7 +232,6 @@ double timevaldiff(struct timeval *starttime, struct timeval *finishtime)
 }
 
 // returns the absolute value of a number; used in distance function
-
 inline int abs(int x) {
     return (x >= 0)?x:-x;
 }
@@ -242,7 +245,6 @@ inline int max(int x,int y) {
 
 
 // returns the distance between two items on the grid accounting for map wrapping
-
 int edist_sq(int row1, int col1, int row2, int col2, struct game_info *Info)
 {
     int dr, dc;
@@ -272,7 +274,6 @@ double edist(int row1, int col1, int row2, int col2, struct game_info *Info)
 }
 
 // sends a move to the tournament engine and keeps track of ants new location
-
 void move(int index, char dir, struct game_state* Game, struct game_info* Info)
 {
     fprintf(stdout, "O %i %i %c\n", Game->my_ants[index].row, Game->my_ants[index].col, dir);
@@ -346,7 +347,6 @@ int get_neighbor(struct game_info *Info, int n, int cur_loc, int *new_loc, char 
 
 // just a function that returns the string on a given line for i/o
 // you don't need to worry about this
-
 char *get_line(char *text)
 {
     char *tmp_ptr = text;
@@ -369,7 +369,6 @@ char *get_line(char *text)
 }
 
 // main, communicates with tournament engine
-
 void quit_now(int sig) {
     exit(0);
 }
@@ -590,132 +589,147 @@ double attack_this_enemy(struct basic_ant * e, struct game_info *Info)
 		}
 #endif
 	}
-	if( win ) return 1.0;
+	if( win || near_home_calc(Info,eoffset,VERY_NEAR_HOME_DIST_SQ)) return 1.0;
 	return -1.0;
 }
 
 /* */
 inline double get_food_val(int offset, struct game_info *Info)
 {
-    if( IS_FOOD(Info->map[offset]) )
-        return 1.0;
-    if( IS_WATER(Info->map[offset]) ||
-        IS_MY_ANT(Info->map[offset]) )
-        return 0.0;
-    return Info->cost_map[cm_FOOD][offset];
+    return ( IS_FOOD(Info->map[offset]) )?1.0:
+        ( IS_WATER(Info->map[offset]) ||
+          IS_MY_ANT(Info->map[offset]) )?0.0:
+        Info->cost_map[cm_FOOD][offset];
 }
 
 inline double get_hill_val(int offset, struct game_info *Info)
 {
-    if( IS_ENEMY_HILL(Info->map[offset]) )
-        return 1.0;
-    if( IS_WATER(Info->map[offset]) ||
-        IS_MY_HILL(Info->map[offset]) ) // HACK: check my hill here to clear the -1 set below
-        return 0.0;
-    if ( IS_MY_ANT(Info->map[offset]) )
-        return Info->cost_map[cm_HILL][offset]*0.5;  // I want to attack hills in numbers, diffuse partially through my ants
-    return Info->cost_map[cm_HILL][offset];
+    return ( IS_ENEMY_HILL(Info->map[offset]) )?1.0:
+        ( IS_WATER(Info->map[offset]) ||
+          // HACK: check my hill here to clear the -1 set below
+          IS_MY_HILL(Info->map[offset]) )?0.0:
+        // I want to attack hills in numbers, diffuse partially through my ants
+        ( IS_MY_ANT(Info->map[offset]) )?Info->cost_map[cm_HILL][offset]*0.5:
+        Info->cost_map[cm_HILL][offset];
 }
 
 inline double get_unseen_val(int offset, struct game_info *Info)
 {
-    if( IS_UNSEEN(Info->map[offset]) )
-        return 1.0;
-    if( IS_WATER(Info->map[offset]) ||
-        IS_MY_ANT(Info->map[offset]) )
-        return 0.0;
-    return Info->cost_map[cm_UNSEEN][offset];
-}
-
-inline double get_visibility_val(int offset, struct game_info *Info)
-{
-    if( IS_WATER(Info->map[offset]) )
-        return 0.0;
-    if( IS_MY_ANT(Info->map[offset]) )
-        return 0.0;
-    return Info->cost_map[cm_VIS][offset];
-}
-
-inline double get_battle_val(int offset, struct game_info *Info)
-{
-    return Info->cost_map[cm_BATTLE][offset];
-}
-
-inline int near_home(int offset, struct game_info *Info)
-{
-    int r,c;
-    AT_INDEX(r,c,offset);
-    int h;
-    for(h=0;h<Info->Game->my_hill_count;h++){
-        struct my_ant *e = &Info->Game->my_hills[h];
-        if( edist_sq(e->row,e->col,r,c,Info) < NEAR_HOME_DIST_SQ )
-            return 1;
-    }
-    return 0;
+    return ( IS_UNSEEN(Info->map[offset]) )?1.0:
+        ( IS_WATER(Info->map[offset]) ||
+          IS_MY_ANT(Info->map[offset]) )?0.0:
+        Info->cost_map[cm_UNSEEN][offset];
 }
 
 inline double get_defense_val(int offset, struct game_info *Info)
 {
-    if( IS_WATER(Info->map[offset]) )
-        return 0.0;
-    if( IS_MY_ANT(Info->map[offset]) )
-        return 0.0;
-    if( IS_ENEMY_ANT(Info->map[offset]) && near_home(offset,Info) )
-        return 1.0;
-    return Info->cost_map[cm_DEFENSE][offset];
+    return ( IS_WATER(Info->map[offset]) )?0.0:
+        ( IS_MY_ANT(Info->map[offset]) )?0.0:
+        ( IS_ENEMY_ANT(Info->map[offset]) && 
+          IS_NEAR_HOME(Info->map[offset]) )?1.0:
+        Info->cost_map[cm_DEFENSE][offset];
 }
 
 struct diffusion_params {
+};
+static void simple_diffuse(struct game_info *Info)
+{
+    int i,j;
+    int full_pass;
     double dx,dy;
     double dx2,dy2;
     double dt[cm_TOTAL];
-    int configured;
-};
-inline void diffuse_step(int i, int j, struct game_info *Info, struct diffusion_params *dp)
-{
-    if(!dp->configured){
-        int x;
-        dp->dx = 1.0/Info->rows;
-        dp->dy = 1.0/Info->cols;
-        dp->dx2 = dp->dx*dp->dx;
-        dp->dy2 = dp->dy*dp->dy;
-        for(x=0;x<cm_TOTAL;x++)
-            dp->dt[x] = dp->dx2*dp->dy2/( 2*alpha[x]*(dp->dx2+dp->dy2) );
-        dp->configured = 1;
-    }
-    double uxx,uyy;
-    int offset = INDEX_AT(i,j);
-    int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+    int x;
+    /* configure */
+    dx = 1.0/Info->rows;
+    dy = 1.0/Info->cols;
+    dx2 = dx*dx;
+    dy2 = dy*dy;
+    for(x=0;x<cm_TOTAL;x++)
+        dt[x] = dx2*dy2/( 2*alpha[x]*(dx2+dy2) );
+#define DIFFUSE_STEP_V1(f,t) ({\
+                double uxx,uyy;\
+                uxx = ( f(_n,Info) - 2*f(offset,Info) + f(_s,Info) )/dx2;\
+                uyy = ( f(_w,Info) - 2*f(offset,Info) + f(_e,Info) )/dy2;\
+                Info->cost_map[t][offset] = f(offset,Info)+dt[t]*alpha[t]*(uxx+uyy);\
+                              })
+#define DIFFUSE_STEP_V2(f,t) ({\
+                double neighbors = f(_n,Info) + f(_s,Info) + f(_w,Info) + f(_e,Info); \
+                Info->cost_map[cm_FOOD][offset] = f(offset,Info)*alpha[t] + (1.0-alpha[t])*neighbors;\
+                              })
 
+#define DIFFUSE_STEP(f,t) DIFFUSE_STEP_V1(f,t)
+
+#define MULTI_LOOP_DIFFUSE 0
+#if MULTI_LOOP_DIFFUSE
+    /* TEST FOR POSSIBLY BETTER CACHE UTILIZATION -- FAIL :( */
     /* FOOD */
-    uxx = ( get_food_val(_n,Info) - 2*get_food_val(offset,Info) + get_food_val(_s,Info) )/dp->dx2;
-    uyy = ( get_food_val(_w,Info) - 2*get_food_val(offset,Info) + get_food_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_FOOD][offset] = get_food_val(offset,Info)+dp->dt[cm_FOOD]*alpha[cm_FOOD]*(uxx+uyy);
+    for(full_pass=0;full_pass<2*DIFFUSION_PASSES;full_pass++)
+        for(i=0;i<Info->rows;i++)
+            for(j=0;j<Info->cols;j++) {
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_food_val,cm_FOOD);
+            }
     /* HILL */
-    uxx = ( get_hill_val(_n,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_s,Info) )/dp->dx2;
-    uyy = ( get_hill_val(_w,Info) - 2*get_hill_val(offset,Info) + get_hill_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_HILL][offset] = get_hill_val(offset,Info)+dp->dt[cm_HILL]*alpha[cm_HILL]*(uxx+uyy);
+    for(full_pass=0;full_pass<2*DIFFUSION_PASSES;full_pass++)
+        for(i=0;i<Info->rows;i++)
+            for(j=0;j<Info->cols;j++) {
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_hill_val,cm_HILL);
+            }
     /* UNSEEN */
-    uxx = ( get_unseen_val(_n,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_s,Info) )/dp->dx2;
-    uyy = ( get_unseen_val(_w,Info) - 2*get_unseen_val(offset,Info) + get_unseen_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_UNSEEN][offset] = get_unseen_val(offset,Info)+dp->dt[cm_UNSEEN]*alpha[cm_UNSEEN]*(uxx+uyy);
-    /* VISIBILITY */
-#ifdef DIFFUSE_VIS
-    uxx = ( get_visibility_val(_n,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_s,Info) )/dp->dx2;
-    uyy = ( get_visibility_val(_w,Info) - 2*get_visibility_val(offset,Info) + get_visibility_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_VIS][offset] = get_visibility_val(offset,Info)+dp->dt[cm_VIS]*alpha[cm_VIS]*(uxx+uyy);
-#endif
+    for(full_pass=0;full_pass<2*DIFFUSION_PASSES;full_pass++)
+        for(i=0;i<Info->rows;i++)
+            for(j=0;j<Info->cols;j++) {
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_unseen_val,cm_UNSEEN);
+            }
     /* DEFENSE */
-#if 1
-    uxx = ( get_defense_val(_n,Info) - 2*get_defense_val(offset,Info) + get_defense_val(_s,Info) )/dp->dx2;
-    uyy = ( get_defense_val(_w,Info) - 2*get_defense_val(offset,Info) + get_defense_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_DEFENSE][offset] = get_defense_val(offset,Info)+dp->dt[cm_DEFENSE]*alpha[cm_DEFENSE]*(uxx+uyy);
-#endif
-    /* BATTLE */
-#ifdef DIFFUSE_BATTLE
-    uxx = ( get_battle_val(_n,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_s,Info) )/dp->dx2;
-    uyy = ( get_battle_val(_w,Info) - 2*get_battle_val(offset,Info) + get_battle_val(_e,Info) )/dp->dy2;
-    Info->cost_map[cm_BATTLE][offset] = get_battle_val(offset,Info)+dp->dt[cm_BATTLE]*alpha[cm_BATTLE]*(uxx+uyy);
+    for(full_pass=0;full_pass<2*DIFFUSION_PASSES;full_pass++)
+        for(i=0;i<Info->rows;i++)
+            for(j=0;j<Info->cols;j++) {
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_defense_val,cm_DEFENSE);
+            }
+#else
+# define FORWARD_AND_BACK 1
+# if FORWARD_AND_BACK
+    for(full_pass=0;full_pass<DIFFUSION_PASSES;full_pass++){
+        for(i=0;i<Info->rows;i++)
+            for(j=0;j<Info->cols;j++) {
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_food_val,cm_FOOD);
+                DIFFUSE_STEP(get_hill_val,cm_HILL);
+                DIFFUSE_STEP(get_unseen_val,cm_UNSEEN);
+                DIFFUSE_STEP(get_defense_val,cm_DEFENSE);
+            }
+        for(i=Info->rows-1;i>=0;i--)
+            for(j=Info->cols-1;j>=0;j--){
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_food_val,cm_FOOD);
+                DIFFUSE_STEP(get_hill_val,cm_HILL);
+                DIFFUSE_STEP(get_unseen_val,cm_UNSEEN);
+                DIFFUSE_STEP(get_defense_val,cm_DEFENSE);
+            }
+    }
+# else
+    for(full_pass=0;full_pass<2*DIFFUSION_PASSES;full_pass++)
+        for(i=0;i<Info->rows;i++)
+            for(j=0;j<Info->cols;j++) {
+                int _n=NORTH(i,j),_e=EAST(i,j),_s=SOUTH(i,j),_w=WEST(i,j);
+                int offset = INDEX_AT(i,j);
+                DIFFUSE_STEP(get_food_val,cm_FOOD);
+                DIFFUSE_STEP(get_hill_val,cm_HILL);
+                DIFFUSE_STEP(get_unseen_val,cm_UNSEEN);
+                DIFFUSE_STEP(get_defense_val,cm_DEFENSE);
+            }
+# endif
 #endif
 }
 
@@ -828,21 +842,11 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
 	gettimeofday(&t_end,NULL);
     LOG("Vis calc: %lf\n",timevaldiff(&t_start,&t_end));
 
-    int full_pass;
-    struct diffusion_params dp={0};
 	gettimeofday(&t_start,NULL);
-    for(full_pass=0;full_pass<10;full_pass++) {
-        /* Diffuse half pass 1 */
-        for(i=0;i<Info->rows;i++)
-            for(j=0;j<Info->cols;j++)
-                diffuse_step(i,j,Info,&dp);
-        /* Diffuse half pass 2 */
-        for(i=Info->rows-1;i>=0;i--)
-            for(j=Info->cols-1;j>=0;j--)
-                diffuse_step(i,j,Info,&dp);
-    }
+    simple_diffuse(Info);
 	gettimeofday(&t_end,NULL);
     LOG("Diffuse calc: %lf\n",timevaldiff(&t_start,&t_end));
+
     /* Restore all items to their non-defused maxes */
     int defenders = min(4,Game->my_hill_count?(Game->my_count / (ANTS_PER_DEFENDER*Game->my_hill_count)):0);
 	LOG("Defenders: %d (%d/%d)\n", defenders, Game->my_count, ANTS_PER_DEFENDER * Game->my_hill_count);
@@ -881,6 +885,7 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
     struct timeval t_start, t_end;
     gettimeofday(&t_start,NULL);
     // Push all starting points onto the queue with scores:
+    // Add food
     if(Info->game_strategy != st_ENDGAME)
         for (i = 0; i < Game->food_count; ++i) {
             struct q_data_t l;
@@ -889,12 +894,23 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
             queue_push(&bfs_queue,&l);
             set_insert(&bfs_seen,l.offset);
         }
+    // Add Enemy Hills
     for (i = 0; i < Game->enemy_hill_count; ++i) {
         struct q_data_t l;
         l.offset = INDEX_AT(Game->enemy_hills[i].row,Game->enemy_hills[i].col);
         l.distance = 0;
         queue_push(&bfs_queue,&l);
         set_insert(&bfs_seen,l.offset);
+    }
+    // Add attacking enemies
+    for (i = 0; i < Game->enemy_count; ++i) {
+        struct q_data_t l;
+        l.offset = INDEX_AT(Game->enemy_ants[i].row,Game->enemy_ants[i].col);
+        l.distance = 0;
+        if(IS_NEAR_HOME(l.offset)) {
+            queue_push(&bfs_queue,&l);
+            set_insert(&bfs_seen,l.offset);
+        }
     }
     LOG("Put %d items into bfs_queue\n", Game->food_count + Game->enemy_hill_count);
 
@@ -1132,7 +1148,9 @@ void do_turn(struct game_state *Game, struct game_info *Info)
         }
     }
 
-	//render_map(Info);
+#if ASCII_MAP_DUMP
+	render_map(Info);
+#endif
 #if PLOT_DUMP
     render_plots(Info);
 #endif
