@@ -21,6 +21,7 @@
 #define DEFEND_HILL_SCORE 0.99
 #define STRATEGY_STARTGAME_TURNS  10
 #define DIFFUSION_PASSES 10
+#define BFS_ATTACKING_ENEMIES 1
 
 
 #define PLT_BFS     (1<< 0)
@@ -31,6 +32,7 @@
 #define PLT_BATTLE  (1<< 5)
 #define PLT_VISION  (1<< 6)
 #define PLT_DEFENSE (1<< 7)
+
 #ifdef DEBUG
 # define PLOT_DUMP (0|PLT_SCORE|PLT_DEFENSE)
 # define ASCII_MAP_DUMP (0)
@@ -61,12 +63,13 @@
 // [ ] 9. test timeout protection, possibly add two-staged timeout, so can move
 //        some ants in a turn based on stale info.
 // [ ] 10. Recently been layer? "for c in cells: if MyANT(c): c-=X; elif c<0: c+=1" diffused?
-// [ ] 11. Add attacking enemies to the BFS list
+// [X] 11. Add attacking enemies to the BFS list
 // [ ] 12. Tuning ... dont seem to attack hills well from a distance. 
 // [ ] 13. Maybe? Dynamic weighting .. if seeing 'many' more of my ants than
 //         enemy more liberally attack [hills]?
 // [ ] 14. Maybe? Different weight sets for different goals some number of ants
 //         use different weights? eg. Attacking, exploring, etc.
+// [ ] 15. Anytime I must back away form a battle, should mark as "need reenforcements" and 
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -880,7 +883,7 @@ void diffuse_cost_map(struct game_state *Game, struct game_info *Info)
 #if BFS_ENABLE
 void bfs_cost_map(struct game_state *Game, struct game_info *Info)
 {
-    int i;
+    int i, start_count=0;
     int max_possible_dist = Info->rows+Info->cols; // :TODO: fix this
     struct timeval t_start, t_end;
     gettimeofday(&t_start,NULL);
@@ -893,6 +896,7 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
             l.distance = 0;
             queue_push(&bfs_queue,&l);
             set_insert(&bfs_seen,l.offset);
+            ++start_count;
         }
     // Add Enemy Hills
     for (i = 0; i < Game->enemy_hill_count; ++i) {
@@ -901,7 +905,9 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
         l.distance = 0;
         queue_push(&bfs_queue,&l);
         set_insert(&bfs_seen,l.offset);
+        ++start_count;
     }
+#if BFS_ATTACKING_ENEMIES
     // Add attacking enemies
     for (i = 0; i < Game->enemy_count; ++i) {
         struct q_data_t l;
@@ -910,9 +916,11 @@ void bfs_cost_map(struct game_state *Game, struct game_info *Info)
         if(IS_NEAR_HOME(l.offset)) {
             queue_push(&bfs_queue,&l);
             set_insert(&bfs_seen,l.offset);
+            ++start_count;
         }
     }
-    LOG("Put %d items into bfs_queue\n", Game->food_count + Game->enemy_hill_count);
+#endif
+    LOG("Put %d items into bfs_queue\n", start_count);
 
     while(!queue_is_empty(&bfs_queue)) {
         struct q_data_t l;
