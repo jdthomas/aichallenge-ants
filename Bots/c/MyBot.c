@@ -20,6 +20,7 @@
 #define DEFEND_HILL 1
 #define DEFEND_HILL_SCORE 0.99
 #define STRATEGY_STARTGAME_TURNS  10
+#define DIFFUSE_VER 4
 #define DIFFUSION_PASSES 10
 #define BFS_ATTACKING_ENEMIES 1
 
@@ -34,7 +35,7 @@
 #define PLT_DEFENSE (1<< 7)
 
 #ifdef DEBUG
-# define PLOT_DUMP (0|PLT_SCORE|PLT_DEFENSE)
+# define PLOT_DUMP 0 //(0|PLT_SCORE|PLT_FOOD)
 # define ASCII_MAP_DUMP (0)
 #else
 # define PLOT_DUMP (0)
@@ -70,6 +71,9 @@
 // [ ] 14. Maybe? Different weight sets for different goals some number of ants
 //         use different weights? eg. Attacking, exploring, etc.
 // [ ] 15. Anytime I must back away form a battle, should mark as "need reenforcements" and 
+// [ ] 16. BUG: Diffusion in non-square maps diffuses MUCH stronger in the
+//         longer axis. This causes weird problems of back-and-forth:
+//         http://aichallenge.org/visualizer.php?game=224115&user=46
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */
@@ -633,23 +637,30 @@ inline double get_defense_val(int offset, struct game_info *Info)
         Info->cost_map[cm_DEFENSE][offset];
 }
 
-struct diffusion_params {
-};
 static void simple_diffuse(struct game_info *Info)
 {
-    int i,j;
+    int x,i,j;
     int full_pass;
+#if ((DIFFUSE_VER==1)||(DIFFUSE_VER==4))
     double dx,dy;
     double dx2,dy2;
     double dt[cm_TOTAL];
-    int x;
     /* configure */
     dx = 1.0/Info->rows;
     dy = 1.0/Info->cols;
+#  if(DIFFUSE_VER==4)
+    /* Ver4 is really just 1 with shared dx/dy */
+    /* From staring at some numbers, I think that may improve this 'ledge' ..
+     * that is probably a better fix */
+    dx = dy = fmin(dx,dy);
+#  endif
     dx2 = dx*dx;
     dy2 = dy*dy;
     for(x=0;x<cm_TOTAL;x++)
         dt[x] = dx2*dy2/( 2*alpha[x]*(dx2+dy2) );
+#endif
+
+#define PRINT_COEF(t) ({static int once=1; if(once){once=1;LOG("dx=%lf dy=%lf dx2=%lf dy2=%lf dt=%lf uxx=%lf uyy=%lf alpha=%lf\n",dx,dy,dx2,dy2,dt[t],uxx,uyy,alpha[t] );}})
 #define DIFFUSE_STEP_V1(f,t) ({\
                 double uxx,uyy;\
                 uxx = ( f(_n,Info) - 2*f(offset,Info) + f(_s,Info) )/dx2;\
@@ -658,10 +669,20 @@ static void simple_diffuse(struct game_info *Info)
                               })
 #define DIFFUSE_STEP_V2(f,t) ({\
                 double neighbors = f(_n,Info) + f(_s,Info) + f(_w,Info) + f(_e,Info); \
-                Info->cost_map[cm_FOOD][offset] = f(offset,Info)*alpha[t] + (1.0-alpha[t])*neighbors;\
+                Info->cost_map[t][offset] = f(offset,Info)*(1.0-alpha[t]) + (alpha[t])*neighbors;\
+                              })
+#define DIFFUSE_STEP_V3(f,t) ({\
+                double neighbors = f(_n,Info) + f(_s,Info) + f(_w,Info) + f(_e,Info); \
+                Info->cost_map[t][offset] = (f(offset,Info) + neighbors/8)/2;\
                               })
 
-#define DIFFUSE_STEP(f,t) DIFFUSE_STEP_V1(f,t)
+#if ((DIFFUSE_VER==1)||(DIFFUSE_VER==4))
+# define DIFFUSE_STEP(f,t) DIFFUSE_STEP_V1(f,t)
+#elif (DIFFUSE_VER==2)
+# define DIFFUSE_STEP(f,t) DIFFUSE_STEP_V2(f,t)
+#elif (DIFFUSE_VER==3)
+# define DIFFUSE_STEP(f,t) DIFFUSE_STEP_V3(f,t)
+#endif
 
 #define MULTI_LOOP_DIFFUSE 0
 #if MULTI_LOOP_DIFFUSE
@@ -1019,6 +1040,7 @@ static void print_scores(struct game_info *Info,int offset,int noffset, char d, 
 #endif
 }
 
+#if PLOT_DUMP
 static void render_plots(struct game_info *Info)
 {
     if(!debug_on) return;
@@ -1075,6 +1097,7 @@ static void render_plots(struct game_info *Info)
 # endif
     }
 }
+#endif
 #endif
 
 void do_turn(struct game_state *Game, struct game_info *Info)
