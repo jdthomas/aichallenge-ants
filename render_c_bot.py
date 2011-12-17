@@ -43,7 +43,11 @@ def load_data(log_file):
             d = line.split()
             i = d[1]
             #"plt name xxx: ..."
-            a = map(float,d[3::])
+            try:
+                a = map(float,d[3::])
+            except ValueError:
+                print d
+                sys.exit(1)
         #if i not in ['score', 'defense', 'food', 'hill', 'unseen', 'battle', 'vis', 'bfs']: continue
         #if i not in ['bfs', 'score']: continue
         if i != -1:
@@ -72,16 +76,15 @@ def render_frame(m, data, images, subplots):
 def updatefig(*args):
     global m, data, images, subplots, fig, manager
     print "Computing and rendering u for m =", m
+    something = data.keys()[0]
+    if m >= len(data[something]): return False
     #plt.suptitle('%04d'%m)
     manager.canvas.draw()
     filename='/tmp/HeatMap/diffusion_%04d.png'%m
     fig.savefig(filename)
     render_frame(m,data,images,subplots)
-    something = data.keys()[0]
-    if m < len(data[something]):
-        m+=1
-        return True
-    return False
+    m+=1
+    return True
 
 
 
@@ -98,6 +101,11 @@ def do_rendering():
         return total/rows
     r = num_rows(len(data))
     c = num_cols(len(data),r)
+    something = data.keys()[0]
+    rr=len(data[something])
+    rc=len(data[something][0])
+    if rr < rc: t=r ; r=c ; c=t
+
     for render_num,x in enumerate(data):
         #s = fig.add_subplot(1,(1+len(data))/1,render_num+1, title=x)
         s = fig.add_subplot(r,c,render_num+1, title=x)
