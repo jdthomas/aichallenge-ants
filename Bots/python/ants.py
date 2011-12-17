@@ -5,6 +5,7 @@ import random
 import time
 from collections import defaultdict
 from math import sqrt
+from numpy import *
 
 MY_ANT = 0
 ANTS = 0
@@ -52,6 +53,7 @@ lw = logger.warning
 
 class Ants():
     def __init__(self):
+        self.cur_turn=0
         self.cols = None
         self.rows = None
         self.map = None
@@ -175,6 +177,48 @@ class Ants():
                     if self.map[r][c] == UNSEEN: self.map[r][c] = LAND
         update_unseen()
         #ld("\n%s\n",self.render_text_map())
+
+        def symmetery():
+            import math
+            import numpy as NP
+            import scipy as SP
+            import pylab as PL
+            from scipy import fftpack, signal
+            A = NP.zeros((self.rows,self.cols))
+            for r in range(self.rows):
+                for c in range(self.cols):
+                    x=-1.0 #LAND, all else
+                    if self.map[r][c] == UNSEEN: x=0.0
+                    if self.map[r][c] == WATER: x=1.0
+                    A[r][c] = x
+            PL.clf()
+            PL.imshow(A,cmap=PL.cm.jet)
+            PL.savefig("/tmp/HeatMap/FFTMap_%s.png"%self.cur_turn)
+
+            fmap = fftpack.fft2(A)
+            FM2 = [[math.log(abs(x)) for x in y] for y in fmap]
+            PL.imshow(FM2,cmap=PL.cm.jet)
+            PL.savefig("/tmp/HeatMap/FFTMap_fft_%s.png"%self.cur_turn)
+            self.cur_turn+=1
+
+            laplacian = NP.array([[0,1,0],[1,-4,1],[0,1,0]],NP.float32)
+            deriv2 = signal.convolve2d(fmap,laplacian,mode='same',boundary='symm')
+            #derfilt = NP.array([1.0,-2,1.0],NP.float32)
+            #ck = signal.cspline2d(FM2,8.0)
+            #deriv = signal.sepfir2d(ck, derfilt, [1]) + \
+            #signal.sepfir2d(ck, [1], derfilt)
+            #for r in range(self.rows):
+            #    ld("A: %s",''.join(map(str,A[r])))
+            #for r in range(self.rows):
+            #    ld("F: %s",''.join(map(str,fmap[r])))
+            #for r in range(self.rows):
+            #    ld("D: %s",''.join(map(str,deriv2[r])))
+            #PL.clf()
+            #PL.imshow(deriv,cmap=PL.cm.jet)
+            #PL.savefig("/tmp/HeatMap/FFTMap_der_%s.png"%self.cur_turn)
+            #PL.clf()
+        #symmetery()
+
                         
     def time_remaining(self):
         return self.turntime - int(1000 * (time.clock() - self.turn_start_time))
@@ -190,6 +234,8 @@ class Ants():
         sys.stdout.write('go\n')
         sys.stdout.flush()
 
+    def all_ants(self):
+        return [(loc,owner) for loc, owner in self.ant_list.items()]
     def my_ants(self):
         'return a list of all my ants'
         return [loc for loc, owner in self.ant_list.items()
@@ -236,6 +282,30 @@ class Ants():
             return [current_node]
     def neighbors(self, pos):
         return [x for x in [self.destination(pos,d) for d in AIM.keys()] if self.passable(x)]
+    def bfs_build_full_map(self,starts):
+        """ Build a full map of distances from starts to each square """
+        t1 = time.time()
+        new_map = zeros((self.rows,self.cols),int32)
+        #new_map = [[0]*self.cols for x in range(self.rows)]
+        search_counter=0
+        Q = [(s,0) for s in starts]
+        seen = set(starts)
+        #ld("bfs_all: %sx%s %s", self.rows, self.cols, seen)
+        while Q:
+            search_counter+=1
+            v,vs=Q.pop(0)
+            #ld("bfs: popped %s %s @%s %s", v,vs, search_counter, len(seen))
+            seen.add(v)
+            r,c = v
+            new_map[r][c] = vs
+            for w in self.neighbors(v):
+                if w not in seen:
+                    Q.append((w,vs+1))
+                    seen.add(w) # Add to seen now so we don't re-add it.
+                    #ld("bfs: seen %s %s", w,vs+1)
+        t2 = time.time()
+        ld("bfs_all done in %s\n%s",t2-t1,new_map)
+        return new_map
     def bfs(self,start,goals):
         #ld("bfs: %s->%s",start,goals)
         if start in goals: return 0

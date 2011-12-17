@@ -2,6 +2,7 @@
 from ants import *
 import random
 import logging
+from pprint import pformat, pprint
 import sys
 from optparse import OptionParser
 
@@ -58,6 +59,13 @@ def exit_handler(signum, frame):
 #   [ ] Better utilization of 'extra' CPU time per turn.
 #   [ ] Port to c? setjmp/longjmp for timeout?
 
+def cfDist(l1,l2):
+    """Crow flight distance two points"""
+    r1,c1 = l1
+    r2,c2 = l2
+    cd = sqrt(min(r1-r2,r2-r1)**2 + min(c1-c2,c2-c1)**2)
+    #ld("crow dist: %s->%s: %s", l1,l2,cd)
+    return cd
 
 # define a class with a do_turn method
 # the Ants.run method will parse and update bot input
@@ -118,6 +126,27 @@ class MyBot:
         #             are hills left to attack.
         if hills and not ants.my_hills(): food = []
         return food + [x for x in hills] + [a for a in self.attacking_enemys]
+    def nearby_ants(self, ants, loc, max_dist, exclude=None):                           
+        n_ants = []                                                                 
+        for a in ants.all_ants():
+            if a[1] != exclude and cfDist(loc,a[0]) < max_dist:
+                n_ants.append(a[0])
+        return n_ants    
+    def do_attack_focus(self,ants):
+        # maps ants to nearby enemies
+        nearby_enemies = {}
+        for ant,owner in ants.all_ants():
+            nearby_enemies[ant] = self.nearby_ants(ants, ant, sqrt(ants.attackradius2)+2, owner)
+        ld("   nearby: %s... %s", pformat(nearby_enemies),sqrt(ants.attackradius2))
+        # determine which ants to kill
+        ants_to_kill = []
+        for ant in [a for a in ants.my_ants()]:
+            weakness = len(nearby_enemies[ant])
+            if weakness == 0: continue
+            min_enemy_weakness = min(len(nearby_enemies[enemy]) for enemy in nearby_enemies[ant])
+            if min_enemy_weakness <= weakness: ants_to_kill.append(ant)
+        return ants_to_kill
+
     # do turn is run once per turn
     # the ants class has the game state and is updated by the Ants.run method
     # it also has several helper methods to use
@@ -160,7 +189,31 @@ class MyBot:
                 #    pylab.scatter(*zip(*dan))
                 #    pylab.xlim([0,self.rows]);pylab.ylim([0,self.cols])
                 #    pylab.savefig("/tmp/HeatMap/danger_%04d.png"%self.turn_count)
+            def attackable1():
+                self.attackables = {}
+                self.attackback = defaultdict(list)
+                self.attackables_all = set()
+                for a in self.round_ants:
+                    self.attackables[a] = set()
+                    for n in ants.neighbors(a) + [a]:
+                        af = ants.attackable_from(n)
+                        self.attackables[a] |= set(af)
+                        for x in af: self.attackback[x].append(n)
+                    self.attackables_all |= self.attackables[a]
+            attackable1()
+            attackable_enemys = self.attackables_all.intersection([e for e,_ in ants.enemy_ants()])
+            ld("enemies I can get: %s", attackable_enemys)
+            for e in attackable_enemys:
+                az = self.attackback[e]
+                for a in ants.my_ants():
+                    pass
+            ###         if there exists a move where len(az) < enemys atacking a:
+            ###             save as tenative
+            ###         else
+            ###             clear tenative, abort
+            ###     do_moves to tenative
 
+            ld("Someone might die from: %s",self.do_attack_focus(ants))
             def build_visibility_table():
                 self.visible = defaultdict(lambda:0)
                 for a in self.round_ants:
@@ -200,6 +253,8 @@ class MyBot:
             build_visibility_table()
             build_danger_table()
             update_bases()
+
+            ants.bfs_build_full_map(self.good_stuff(ants))
 
             ants.reset_a_star() ## Reset a_star as our goals are different than future uses
             defense()
@@ -337,7 +392,7 @@ class MyBot:
             mv += [(f(ants,ant_loc,n),n) for n in nei]
         mv.sort()
         mv.reverse() # MAX best
-        ld("choose_move: %s->%s", ant_loc,mv)
+        #ld("choose_move: %s->%s", ant_loc,mv)
         return mv
 
     def objective_function(self, ants, ant_pos, pos):
@@ -352,7 +407,7 @@ class MyBot:
         def tie_breaker(): return random.random()*1/10000.0
         s = sum(o) + tie_breaker()
         m = max(o)
-        ld("objectives: %s->%s=%s => %s(%s)/%s",ant_pos,pos,o,s,m,tw)
+        #ld("objectives: %s->%s=%s => %s(%s)/%s",ant_pos,pos,o,s,m,tw)
         return s
 
     def update_vel(self,ant_loc,new_loc,direction):
