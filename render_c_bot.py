@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import sys
 from math import log
 from pprint import pprint
 import scipy as sp
@@ -14,9 +15,9 @@ vmin=9999
 vmax=0
 data = {}
 
-def load_data():
+def load_data(log_file):
     global vmin,vmax,data
-    f=open('/tmp/MyBot_c.log')
+    f=open(log_file)
     turn = 0
     tmp_data = {}
     for line in f.readlines():
@@ -35,7 +36,7 @@ def load_data():
             #"plt name xxx: ..."
             a = map(float,d[3::])
         #if i not in ['bat','scr']: continue ## HACK
-        if i not in ['vis','fod','hil','scr']: continue ## HACK
+        if i not in ['defense','fod','hil','scr']: continue ## HACK
         if i != -1:
             if i not in tmp_data: tmp_data[i] = []
             #a = map(lambda x: log(x+0.1), a)
@@ -43,6 +44,7 @@ def load_data():
             vmin=min([vmin]+tmp_data[i][-1])
             vmax=max([vmax]+tmp_data[i][-1])
     print "VM/VM", vmin, vmax
+    print "read %d turns" % turn
 
 class ImageFollower:
     'update image in response to changes in clim or cmap on another image'
@@ -111,5 +113,7 @@ images = []
 manager = None
 
 if __name__ == "__main__":
-    load_data()
+    #log_id = sys.argv[1]
+    #load_data('/tmp/MyBot_c.%d.log'%log_id)
+    load_data(sys.argv[1])
     do_rendering()
