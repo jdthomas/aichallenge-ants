@@ -36,7 +36,8 @@ def load_data(log_file):
             #"plt name xxx: ..."
             a = map(float,d[3::])
         #if i not in ['bat','scr']: continue ## HACK
-        if i not in ['defense','fod','hil','scr']: continue ## HACK
+        #if i not in ['defense','fod','hil','scr']: continue ## HACK
+        if i not in ['defense', 'fod', 'hil', 'uns', 'scr', 'bat']: continue
         if i != -1:
             if i not in tmp_data: tmp_data[i] = []
             #a = map(lambda x: log(x+0.1), a)
@@ -97,7 +98,7 @@ def do_rendering():
         i.set_norm(norm)
         if render_num>0: images[0].callbacksSM.connect('changed', ImageFollower(i))
         images.append(i)
-        fig.colorbar( i, orientation='horizantal' )
+        #fig.colorbar( i, orientation='horizantal' )
 
     manager = get_current_fig_manager()
     # once idle, call updatefig until it returns false.
