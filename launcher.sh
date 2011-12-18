@@ -18,6 +18,7 @@ function choose_random_map {
     head -$LINE $MAPS_LIST_FILE | tail -1
     rm $MAPS_LIST_FILE
 }
+
 M=
 if [ "x$USE_RAND" != "x" ] ; then
     M=$(choose_random_map)
@@ -28,26 +29,20 @@ if [ "x$M" != "x" ]; then
 fi
 
 MB_ARGS="--debug"
-MYBOT_C="sh ./Bots/c/RunMyBot.sh"
+MYBOT_C="$PWD/Bots/c/RunMyBot.sh"
 #MYBOT_P="python -m cProfile -o /tmp/MyBotProf Bots/python/MyBot.py $MB_ARGS"
 MYBOT_P="python Bots/python/MyBot.py $MB_ARGS"
 
 MYBOT=$MYBOT_C
 
-
-HUNTERBOT="python ${TOOLS_DIR}/sample_bots/python/HunterBot.py" 
-GREEDYBOT="python ${TOOLS_DIR}/sample_bots/python/GreedyBot.py"
-RELEASE1="python Bots_release/jt-20111022_001/ReleaseBot1.py"
-RELEASE2="python Bots_release/jt-20111025_001/ReleaseBot2.py"
-RELEASE3="sh Bots_release/jt-20111204_001/Release3.sh"
-RELEASE4="sh Bots_release/jt-20111211_001/Release4.sh"
-
-#rm -rf /tmp/HeatMap /tmp/HeatMapAll
-#mkdir -p /tmp/HeatMap /tmp/HeatMapAll
-#cp /tmp/MyBot_c.log /tmp/MyBot_c.old.log
-#echo > /tmp/MyBot_c.log
-#cp /tmp/MyBot.log /tmp/MyBot.old.log
-#echo > /tmp/MyBot.log
+function get_rel_bots {
+    if [ ! -d ReleasedBots ]; then
+        ./MakeReleaseBots.sh ReleasedBots
+    fi
+    for B in $(ls ReleasedBots/Run* | sort -r -n | head -n $1); do
+        echo "$PWD/$B"
+    done
+}
 
 if [ "x$NETGAME" == "x" ] ; then
     if [ "x$USE_RAND" == "x" ] ; then
@@ -57,9 +52,7 @@ if [ "x$NETGAME" == "x" ] ; then
     echo "Starting game ..."
     python ${TOOLS_DIR}/playgame.py \
         "$MYBOT_C" \
-        "$MYBOT_P" \
-        "$RELEASE2" \
-        "$RELEASE4" \
+        $(get_rel_bots 3) \
         --map_file ${MAP} \
         --log_dir game_logs \
         --turns $TURNS \
