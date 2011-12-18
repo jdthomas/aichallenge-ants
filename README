@@ -1,0 +1,25 @@
+
+This was my submission to the aichallenge.org 2011 competition: ANTS!
+
+http://aichallenge.org/profile.php?user=46
+
+RUNNING
+
+To run, will need tools as well, after cloning do:
+    git submodule init ; git submodule update
+
+
+NOTES
+
+The final changes I chose not to submit as I was unable to do much testing with
+the even diffusion fix. Just hoping the final tournament doesn't have a lot of
+non-square maps.
+
+The tournament stuff I whipped up one weekend, was going to use it in a GA
+fashion to learn better weights. Found, though, that I didn't have enough CPU
+power to run many 4 player games at once and thus wasn't able to get much
+useful information. Also, later I broke that code, so don't try it :)
+
+FYI, Rebased to cleanup commit names, split multi-bot commits, and remove the
+superfluous tools/ etc. I moved some script submits around too, so likely
+broken at points in history.
