@@ -42,29 +42,13 @@
 # define ASCII_MAP_DUMP (0)
 #endif
 
-// TODO:
+// Possible TODOs:
 // [/] 1. defence
-// [x] 1.1 if my_count > 8/hill: assign closest ant to hill as defence
-// [/] 1.2 Kamikaze attack enemys 'near' home
-// [X] 1.3 Move defend home markers to separate layer (same as current defense?)
 // [ ] 1.4 ??? Instead of defense layer, enemylocation * distance to hill ???
 // 				Simple as difusing enemys and diffusing my_hills and multiply in calc_score
-// [X] 2. remember seen stuff until see the cell and it is gone
-// [X] 3. slight preference for momentum?
-// [X] 4. once dead, attack bases, ignore food.
-// [/] 5. sort my ants by degrees of freedom and move most constrained ones
-//        first? Or sort them by best moves? n**2? move people who "stayed put"
-//        last move first? Randomize the order I iterate atns to move them?
-//        The problem trying to solve is when two ants toggle places in two
-//        local minima. -- currently randomized, seems to help.
-// [X] 6. distance -> edist edist_sq functions, save from doing sqrt so much
-// [/] 7. Move globals into game_info?
-// [/] 8. random_walk_04p_01 bug, equal distance food confuses us -- should be
-//        fixed by using BFS only for first 10 turns; may want to tune this.
 // [ ] 9. test timeout protection, possibly add two-staged timeout, so can move
 //        some ants in a turn based on stale info.
 // [ ] 10. Recently been layer? "for c in cells: if MyANT(c): c-=X; elif c<0: c+=1" diffused?
-// [X] 11. Add attacking enemies to the BFS list
 // [ ] 12. Tuning ... dont seem to attack hills well from a distance. 
 // [ ] 13. Maybe? Dynamic weighting .. if seeing 'many' more of my ants than
 //         enemy more liberally attack [hills]?
@@ -74,6 +58,10 @@
 // [ ] 16. BUG: Diffusion in non-square maps diffuses MUCH stronger in the
 //         longer axis. This causes weird problems of back-and-forth:
 //         http://aichallenge.org/visualizer.php?game=224115&user=46
+// [ ] 17. Still suicidal even in scenario where ants are not constrained (move
+//         195-196): http://aichallenge.org/visualizer.php?game=237008&user=46
+// [ ] 18. Problem attacking hill with ants in it. Shouldn't TMNT it (move 722
+//         on): http://aichallenge.org/visualizer.php?game=237045&user=46
 
 
 #define MAX_ATTACKERS 50 /* FIXME: size of perimeter of attack radius */

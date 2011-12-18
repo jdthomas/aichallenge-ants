@@ -380,28 +380,29 @@ void _init_map(char *data, struct game_info *Info)
 
 
 void render_map(struct game_info *Info) {
-	int i,j;
-	for(j=0;j<Info->cols+5;j++) {
-		fprintf(stderr,"=");
-	}
-	fprintf(stderr,"\n");
-	for(i=0;i<Info->rows;i++) {
-		fprintf(stderr,"%03d: ", i);
-		for(j=0;j<Info->cols;j++) {
-			char render = '_';
-            if(IS_NEAR_HOME(Info->map[i*Info->cols+j]))render='X';
-			//char render = '_';
-			//	 if(IS_LAND(Info->map[i*Info->cols+j]))  render = '.';
-			//else if(IS_WATER(Info->map[i*Info->cols+j])) render = '%';
-			//else if(IS_UNSEEN(Info->map[i*Info->cols+j]))render = '?';
-			//else if(IS_FOOD(Info->map[i*Info->cols+j]))  render = '*';
-			//else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+GET_OWNER(Info->map[i*Info->cols+j]);
-			//else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+GET_OWNER(Info->map[i*Info->cols+j]);
-			//else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+GET_OWNER(Info->map[i*Info->cols+j]);
-			fprintf(stderr,"%c", render);
-			//fprintf(stderr,"%3d ", Info->map[i*Info->cols+j]);
-		}
-		fprintf(stderr,"\n");
-	}
+    int i,j;
+    for(j=0;j<Info->cols+5;j++) {
+        fprintf(stderr,"=");
+    }
+    fprintf(stderr,"\n");
+    for(i=0;i<Info->rows;i++) {
+        fprintf(stderr,"%03d: ", i);
+        for(j=0;j<Info->cols;j++) {
+            //char render = '_';
+            //if(IS_NEAR_HOME(Info->map[i*Info->cols+j]))render='X';
+            //if(IS_MOVE(Info->map[i*Info->cols+j]))render='X';
+            char render = '_';
+                 if(IS_LAND(Info->map[i*Info->cols+j]))  render = '.';
+            else if(IS_WATER(Info->map[i*Info->cols+j])) render = '%';
+            else if(IS_UNSEEN(Info->map[i*Info->cols+j]))render = '?';
+            else if(IS_FOOD(Info->map[i*Info->cols+j]))  render = '*';
+            else if(IS_ANT(Info->map[i*Info->cols+j]))   render = '0'+GET_OWNER(Info->map[i*Info->cols+j]);
+            else if(IS_HILL(Info->map[i*Info->cols+j]))  render = 'A'+GET_OWNER(Info->map[i*Info->cols+j]);
+            else if(IS_DEAD(Info->map[i*Info->cols+j]))  render = 'a'+GET_OWNER(Info->map[i*Info->cols+j]);
+            fprintf(stderr,"%c", render);
+            //fprintf(stderr,"%3d ", Info->map[i*Info->cols+j]);
+        }
+        fprintf(stderr,"\n");
+    }
 }
 
